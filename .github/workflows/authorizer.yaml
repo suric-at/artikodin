@@ -1,0 +1,373 @@
+name: Authorizer
+run-name: "Checking authorization for ${{ github.event.client_payload.repository || inputs.repository }} (#${{ github.event.client_payload.pull_request || inputs.pull_request }})"
+
+
+on:
+  # Runs on a repository dispatch
+  repository_dispatch:
+    types:
+      - authorizer
+
+  # Runs on a workflow dispatch
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: 'The repository for which to authorize the merge'
+        required: true
+      pull_request:
+        description: 'The pull request number to authorize'
+        required: true
+      git_sha:
+        description: 'The git sha to report the status for'
+        required: true
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.client_payload.repository || inputs.repository }}-${{ github.event.client_payload.pull_request || inputs.pull_request }}
+  cancel-in-progress: false
+
+
+jobs:
+  check_input:
+    name: Check input
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      target_repository: ${{ env.TARGET_REPOSITORY }}
+      target_repository_owner: ${{ env.TARGET_REPOSITORY_OWNER }}
+      target_repository_name: ${{ env.TARGET_REPOSITORY_NAME }}
+      pull_request: ${{ env.PULL_REQUEST }}
+      git_sha: ${{ env.GIT_SHA }}
+
+    steps:
+      - name: Read data
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TARGET_REPOSITORY: ${{ github.event.client_payload.repository || inputs.repository }}
+        run: |
+          REPOSITORY_OWNER="${{ github.repository_owner }}"
+          REPOSITORY_NAME="${REPOSITORY#*/}"
+
+          echo "REPOSITORY=$REPOSITORY" | tee -a "$GITHUB_ENV"
+          echo "REPOSITORY_OWNER=$REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
+          echo "REPOSITORY_NAME=$REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
+
+          if [[ "$TARGET_REPOSITORY" == *"/"* ]]; then
+            TARGET_REPOSITORY_OWNER="${TARGET_REPOSITORY%%/*}"
+            TARGET_REPOSITORY_NAME="${TARGET_REPOSITORY#*/}"
+          else
+            TARGET_REPOSITORY_OWNER="${{ github.repository_owner }}"
+            TARGET_REPOSITORY_NAME="${TARGET_REPOSITORY}"
+            TARGET_REPOSITORY="${TARGET_REPOSITORY_OWNER}/${TARGET_REPOSITORY_NAME}"
+          fi
+
+          echo "TARGET_REPOSITORY=$TARGET_REPOSITORY" | tee -a "$GITHUB_ENV"
+          echo "TARGET_REPOSITORY_OWNER=$TARGET_REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
+          echo "TARGET_REPOSITORY_NAME=$TARGET_REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
+
+          echo "PULL_REQUEST=${{ github.event.client_payload.pull_request || inputs.pull_request }}" | tee -a "$GITHUB_ENV"
+          echo "GIT_SHA=${{ github.event.client_payload.git_sha || inputs.git_sha }}" | tee -a "$GITHUB_ENV"
+
+      - name: Check mandatory parameters
+        run: |
+          if [[ -z "${{ env.TARGET_REPOSITORY }}" ]]; then
+            echo >&2 "Missing repository"
+            exit 1
+          fi
+          if [[ -z "${{ env.PULL_REQUEST }}" ]]; then
+            echo >&2 "Missing pull request number"
+            exit 1
+          fi
+          if [[ -z "${{ env.GIT_SHA }}" ]]; then
+            echo >&2 "Missing git_sha"
+            exit 1
+          fi
+
+
+  check_freeze:
+    name: Check if repository is currently frozen
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - check_input
+
+    outputs:
+      frozen: ${{ env.FREEZE }}
+      freeze_reason: ${{ env.FREEZE_REASON }}
+      freeze_from: ${{ env.FREEZE_FROM }}
+      freeze_to: ${{ env.FREEZE_TO }}
+      freeze_details: ${{ env.FREEZE_DETAILS }}
+
+    steps:
+      - name: Checkout commit
+        uses: actions/checkout@v4
+
+      - name: Check freeze status
+        run: |
+          ./.github/workflows/scripts/check_schedule.py \
+            --repository "${{ needs.check_input.outputs.target_repository }}" | \
+            tee -a "$GITHUB_ENV"
+
+      - name: Compute display details
+        if: ${{ env.FREEZE == 'true' }}
+        run: |
+          FREEZE_DETAILS="until ${{ env.FREEZE_TO }}"
+          [[ -n "${{ env.FREEZE_REASON }}" ]] && FREEZE_DETAILS="for ${{ env.FREEZE_REASON }} $FREEZE_DETAILS"
+          echo "FREEZE_DETAILS=$FREEZE_DETAILS" | tee -a "$GITHUB_ENV"
+
+
+  check_exception:
+    name: Check if the pull request has an exception to the freeze
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - check_input
+      - check_freeze
+
+    if: needs.check_freeze.outputs.frozen == 'true'
+
+    env:
+      BRANCH_NAME: "exception-request/${{ needs.check_input.outputs.target_repository }}/${{ needs.check_input.outputs.pull_request }}"
+
+    outputs:
+      branch_name: ${{ env.BRANCH_NAME }}
+      exists: ${{ env.EXISTS }}
+      approved: ${{ env.APPROVED }}
+      pr_url: ${{ env.PR_URL }}
+
+    steps:
+      - name: Create application token for the current repository
+        uses: actions/create-github-app-token@v1
+        id: current-repository-app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          owner: ${{ env.REPOSITORY_OWNER }}
+          repositories: ${{ env.REPOSITORY_NAME }}
+
+      - name: Check the exception pull request
+        env:
+          GITHUB_TOKEN: ${{ steps.current-repository-app-token.outputs.token }}
+        run: |
+          PR_DETAILS=$(gh pr view "${{ env.BRANCH_NAME }}" \
+            --repo "${{ github.repository }}" \
+            --json url,state,reviews \
+            2>/dev/null || echo '{}')
+
+          PR_URL=$(echo "$PR_DETAILS" | \
+            jq --raw-output '.url // ""')
+          EXISTS=$(echo "$PR_DETAILS" | \
+            jq --raw-output '.state // "NOTFOUND" |
+              ascii_upcase == "OPEN"')
+
+          # TODO: we should check that the approver is authorized, and that there is no
+          # authorized approver that *rejected* the PR
+          APPROVED=$(echo "$PR_DETAILS" | \
+            jq --raw-output '.reviews // [] |
+              map(select(.state == "APPROVED")) |
+              length > 0')
+
+          echo "PR_URL=$PR_URL" | tee -a "$GITHUB_ENV"
+          echo "EXISTS=$EXISTS" | tee -a "$GITHUB_ENV"
+          echo "APPROVED=$APPROVED" | tee -a "$GITHUB_ENV"
+
+
+  create_approval_pr:
+    name: Create approval pull request
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - check_input
+      - check_freeze
+      - check_exception
+
+    if: needs.check_freeze.outputs.frozen == 'true' && needs.check_exception.outputs.exists != 'true'
+
+    env:
+      BASE_REF: exceptions
+      TARGET_REPOSITORY: ${{ needs.check_input.outputs.target_repository }}
+      TARGET_REPOSITORY_OWNER: ${{ needs.check_input.outputs.target_repository_owner }}
+      TARGET_REPOSITORY_NAME: ${{ needs.check_input.outputs.target_repository_name }}
+
+    outputs:
+      pr_url: ${{ env.PR_URL }}
+
+    steps:
+      - name: Create application token for the current repository
+        uses: actions/create-github-app-token@v1
+        id: current-repository-app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          owner: ${{ env.REPOSITORY_OWNER }}
+          repositories: ${{ env.REPOSITORY_NAME }}
+
+      - name: Checkout commit
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.current-repository-app-token.outputs.token }}
+          ref: ${{ env.BASE_REF }}
+
+      - name: Create application token for the target repository
+        uses: actions/create-github-app-token@v1
+        id: target-repository-app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          owner: ${{ env.TARGET_REPOSITORY_OWNER }}
+          repositories: ${{ env.TARGET_REPOSITORY_NAME }}
+
+      - name: Prepare pull request data
+        env:
+          PR_NUM: ${{ needs.check_input.outputs.pull_request }}
+          GITHUB_TOKEN: ${{ steps.target-repository-app-token.outputs.token }}
+          FREEZE_DETAILS: ${{ needs.check_freeze.freeze_details }}
+          FREEZE_TO: ${{ needs.check_freeze.freeze_to }}
+        run: |
+          PR_DETAILS=$(gh pr view \
+            "${{ env.PR_NUM }}" \
+            --repo "${{ env.TARGET_REPOSITORY }}" \
+            --json author,title,url)
+
+          PR_AUTHOR_NAME=$(echo "$PR_DETAILS" | jq --raw-output '.author.name')
+          PR_AUTHOR_LOGIN=$(echo "$PR_DETAILS" | jq --raw-output '.author.login')
+          PR_TITLE=$(echo "$PR_DETAILS" | jq --raw-output '.title')
+          PR_URL=$(echo "$PR_DETAILS" | jq --raw-output '.url')
+
+          echo "PR_TITLE<<EOF" | tee -a "$GITHUB_ENV"
+          echo "🥶 ${{ env.TARGET_REPOSITORY }} (#${{ env.PR_NUM }}): ${PR_TITLE}" | tee -a "$GITHUB_ENV"
+          echo "EOF" | tee -a "$GITHUB_ENV"
+
+          pr_body() { echo "$@" | tee -a pull_request_body.md; }
+          pr_body "## Exception request for $PR_URL"
+          pr_body ""
+          pr_body "$PR_URL has been opened by @$PR_AUTHOR_LOGIN ($PR_AUTHOR_NAME) in \`${{ env.TARGET_REPOSITORY }}\`, but a freeze 🥶 is currently in effect $FREEZE_DETAILS."
+          pr_body ""
+          pr_body "You can:"
+          pr_body " 1. 🕑 Ignore this for now, and wait for the freeze to end ($FREEZE_TO) for merging"
+          pr_body " 2. 🙋 Request an exception by commenting \`/exception\` in this pull request, followed by explanations as to why this should be considered for an exception. Freeze managers will be assigned to approve or refuse the exception request."
+
+      - name: Create new branch
+        run: |
+          git config user.name FrozenGoods
+          git config user.email FrozenGoods@frozen.goods
+          git switch --force-create "${{ needs.check_exception.outputs.branch_name }}"
+          git commit --allow-empty -m "Exception request for ${{ env.TARGET_REPOSITORY }} (#${{ needs.check_input.outputs.pull_request }})"
+          git push --no-verify --force --set-upstream origin "${{ needs.check_exception.outputs.branch_name }}"
+
+      - name: Create pull request
+        env:
+          GITHUB_TOKEN: ${{ steps.current-repository-app-token.outputs.token }}
+        run: |
+          PR_URL=$(gh pr create \
+            --base "${{ env.BASE_REF }}" \
+            --title "${{ env.PR_TITLE }}" \
+            --body-file pull_request_body.md \
+            --repo "${{ github.repository }}" \
+            --label exceptions \
+            --label pending)
+
+          echo "PR_URL=$PR_URL" | tee -a "$GITHUB_ENV"
+
+      - name: Add comment for requesting exception
+        uses: peter-evans/create-or-update-comment@v3
+        env:
+          FREEZE_DETAILS: ${{ needs.check_freeze.freeze_details }}
+        with:
+          token: ${{ steps.target-repository-app-token.outputs.token }}
+          repository: ${{ env.TARGET_REPOSITORY }}
+          issue-number: ${{ needs.check_input.outputs.pull_request }}
+          body: |
+            This repository is currently frozen ${{ env.FREEZE_DETAILS }}.
+
+            An [exception request](${{ env.PR_URL }}) has been created in `pending` status.
+
+            If your change needs to be merged right now, please request an exception by commenting `/exception` followed by the justification of why your change is required during a freeze.
+
+            If your change can wait, nothing else is required for now, the freeze status will be lifted at the end of the freeze event.
+
+
+  authorize:
+    name: Handle authorization
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - check_input
+      - check_freeze
+      - check_exception
+      - create_approval_pr
+
+    if: |
+      !cancelled() && needs.check_input.result == 'success'
+
+    env:
+      TARGET_REPOSITORY: ${{ needs.check_input.outputs.target_repository }}
+      TARGET_REPOSITORY_OWNER: ${{ needs.check_input.outputs.target_repository_owner }}
+      TARGET_REPOSITORY_NAME: ${{ needs.check_input.outputs.target_repository_name }}
+
+    steps:
+      - name: Create application token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          owner: ${{ env.TARGET_REPOSITORY_OWNER }}
+          repositories: ${{ env.TARGET_REPOSITORY_NAME }}
+
+      - name: Prepare status update
+        env:
+          PR_EXISTS: ${{ needs.create_approval_pr.result == 'success' || needs.create_approval_pr.result == 'skipped' }}
+          PR_URL: ${{ needs.check_exception.outputs.pr_url || needs.create_approval_pr.outputs.pr_url }}
+          FROZEN: ${{ needs.check_freeze.outputs.frozen }}
+          FREEZE_REASON: ${{ needs.check_freeze.outputs.freeze_reason }}
+          FREEZE_TO: ${{ needs.check_freeze.outputs.freeze_to }}
+          EXCEPTION_APPROVED: ${{ needs.check_exception.outputs.approved }}
+          STATUS_NAME: freeze
+        run: |
+          # Set the state of the status check
+          if [[ "$PR_EXISTS" == "false" ]]; then
+            STATE="failure"
+            DESCRIPTION="Error creating exception pull request"
+          elif [[ "$FROZEN" == "false" ]]; then
+            STATE="success"
+            DESCRIPTION="The repository is not frozen"
+          elif [[ "$EXCEPTION_APPROVED" == "true" ]]; then
+            STATE="success"
+            DESCRIPTION="Exception approved to bypass the freeze"
+            [[ -n "$FREEZE_REASON" ]] && DESCRIPTION="$DESCRIPTION ($FREEZE_REASON)"
+          else
+            STATE="error"
+            DESCRIPTION="The repository is frozen"
+            [[ -n "$FREEZE_REASON" ]] && DESCRIPTION="$DESCRIPTION ($FREEZE_REASON)"
+          fi
+
+          echo "STATUS_NAME=${STATUS_NAME}" | tee -a "$GITHUB_ENV"
+          echo "STATE=${STATE}" | tee -a "$GITHUB_ENV"
+          echo "DESCRIPTION=${DESCRIPTION}" | tee -a "$GITHUB_ENV"
+
+          echo "DISPATCH_DATA<<EOF" | tee -a "$GITHUB_ENV"
+          echo '{' | tee -a "$GITHUB_ENV"
+          echo '  "context": "'"${STATUS_NAME}"'",' | tee -a "$GITHUB_ENV"
+          [[ -n "$PR_URL" ]] && echo '  "target_url": "'"${PR_URL}"'",' | tee -a "$GITHUB_ENV"
+          echo '  "state": "'"${STATE}"'",' | tee -a "$GITHUB_ENV"
+          echo '  "description": "'"${DESCRIPTION}"'"' | tee -a "$GITHUB_ENV"
+          echo '}' | tee -a "$GITHUB_ENV"
+          echo "EOF" |tee -a "$GITHUB_ENV"
+
+      - name: Post authorization on pull request
+        env:
+          GIT_SHA: ${{ needs.check_input.outputs.git_sha }}
+        run: |
+          curl \
+            --fail-with-body \
+            --request POST \
+            --header "Accept: application/vnd.github.v3+json" \
+            --header "Authorization: Bearer ${{ steps.app-token.outputs.token }}" \
+            --url "https://api.github.com/repos/${{ env.TARGET_REPOSITORY }}/statuses/${{ env.GIT_SHA }}" \
+            --data "$DISPATCH_DATA"
