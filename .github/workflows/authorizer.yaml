@@ -106,7 +106,7 @@ jobs:
 
       - name: Check freeze status
         run: |
-          ./.github/workflows/scripts/check_schedule.py \
+          ./.github/workflows/scripts/freeze-environment.py \
             --repository "${{ needs.check_input.outputs.target_repository }}" | \
             tee -a "$GITHUB_ENV"
 
@@ -157,18 +157,21 @@ jobs:
             --json url,state,reviews \
             2>/dev/null || echo '{}')
 
-          PR_URL=$(echo "$PR_DETAILS" | \
-            jq --raw-output '.url // ""')
           EXISTS=$(echo "$PR_DETAILS" | \
             jq --raw-output '.state // "NOTFOUND" |
               ascii_upcase == "OPEN"')
 
-          # TODO: we should check that the approver is authorized, and that there is no
-          # authorized approver that *rejected* the PR
-          APPROVED=$(echo "$PR_DETAILS" | \
-            jq --raw-output '.reviews // [] |
-              map(select(.state == "APPROVED")) |
-              length > 0')
+          if [[ "$EXISTS" == "true" ]]; then
+            PR_URL=$(echo "$PR_DETAILS" | \
+              jq --raw-output '.url // ""')
+
+            # TODO: we should check that the approver is authorized, and that there is no
+            # authorized approver that *rejected* the PR
+            APPROVED=$(echo "$PR_DETAILS" | \
+              jq --raw-output '.reviews // [] |
+                map(select(.state == "APPROVED")) |
+                length > 0')
+          fi
 
           echo "PR_URL=$PR_URL" | tee -a "$GITHUB_ENV"
           echo "EXISTS=$EXISTS" | tee -a "$GITHUB_ENV"

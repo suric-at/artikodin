@@ -1,0 +1,97 @@
+name: Comment handler
+
+
+on:
+  issue_comment:
+    types:
+      - created
+
+
+jobs:
+  handle-comment:
+    name: Handle pull request comment
+
+    runs-on: ubuntu-latest
+
+    if: |
+      github.event.issue.pull_request &&
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'exceptions') &&
+      contains(github.event.issue.labels.*.name, 'pending') &&
+      (github.event.comment.body == '/exception' ||
+       startsWith(github.event.comment.body, '/exception ') ||
+       startsWith(toJson(github.event.comment.body), '"/exception\n') ||
+       startsWith(toJson(github.event.comment.body), '"/exception\r\n'))
+
+    env:
+      PR_NUM: ${{ github.event.issue.number }}
+
+    steps:
+      - name: Create application token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+
+      - name: Get pull-request details
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          PR_DETAILS=$(gh pr view ${{ env.PR_NUM }} \
+            --repo "${{ github.repository }}" \
+            --json headRefName,baseRefName)
+
+          BASE_REF=$(echo "$PR_DETAILS" | jq --raw-output '.baseRefName')
+          HEAD_REF=$(echo "$PR_DETAILS" | jq --raw-output '.headRefName')
+
+          echo "BASE_REF=$BASE_REF" | tee -a "$GITHUB_ENV"
+          echo "HEAD_REF=$HEAD_REF" | tee -a "$GITHUB_ENV"
+
+          MATCHES=false
+          [[ "$BASE_REF" == "exceptions" ]] && \
+            [[ "$HEAD_REF" == "exception-request/"* ]] && \
+            MATCHES=true
+          echo "MATCHES=$MATCHES" | tee -a "$GITHUB_ENV"
+
+          if [[ "$MATCHES" == "true" ]]; then
+            TARGET=${HEAD_REF#*/}
+            TARGET_REPOSITORY=${TARGET%/*}
+            TARGET_REPOSITORY_OWNER=${TARGET_REPOSITORY%%/*}
+            TARGET_REPOSITORY_NAME=${TARGET_REPOSITORY#*/}
+
+            echo "TARGET_REPOSITORY=$TARGET_REPOSITORY" | tee -a "$GITHUB_ENV"
+            echo "TARGET_REPOSITORY_OWNER=$TARGET_REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
+            echo "TARGET_REPOSITORY_NAME=$TARGET_REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
+          fi
+
+      - name: Checkout commit
+        if: ${{ env.MATCHES == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Load freeze environment
+        if: ${{ env.MATCHES == 'true' }}
+        run: |
+          ./.github/workflows/scripts/freeze-environment.py \
+            --repository "${{ env.TARGET_REPOSITORY }}" | \
+            tee -a "$GITHUB_ENV"
+
+      - name: Edit pull request to add reviewers and change label
+        if: ${{ env.MATCHES == 'true' && env.FREEZE == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          REVIEWERS=$(echo "$FREEZE_REVIEWERS" | jq 'join(",")')
+          if [[ -n "$REVIEWERS" ]]; then
+            REVIEWERS=("--add-reviewer" "$REVIEWERS")
+          else
+            REVIEWERS=()
+          fi
+
+          gh pr edit "${{ env.HEAD_REF }}" \
+            --repo "${{ github.repository }}" \
+            "${REVIEWERS[@]}" \
+            --remove-label pending \
+            --add-label requested

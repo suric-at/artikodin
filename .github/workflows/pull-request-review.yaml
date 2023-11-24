@@ -1,0 +1,155 @@
+name: Review handler
+
+
+on:
+  pull_request_review:
+    types:
+      - submitted
+      - edited
+      - dismissed
+    branches:
+      - "exception-request/*"
+
+
+jobs:
+  handle-review:
+    name: Handle pull request reviews
+
+    runs-on: ubuntu-latest
+
+    if: ${{ github.event.pull_request.base.ref == 'exceptions' }}
+
+    env:
+      PR_NUM: ${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Parse pull request details
+        run: |
+          HEAD_REF=${{ github.event.pull_request.head.ref }}
+
+          echo "HEAD_REF=$HEAD_REF" | tee -a "$GITHUB_ENV"
+
+          TARGET_REPOSITORY=${TARGET%/*}
+          TARGET_REPOSITORY_OWNER=${TARGET_REPOSITORY%%/*}
+          TARGET_REPOSITORY_NAME=${TARGET_REPOSITORY#*/}
+          TARGET_PR_NUM=${HEAD_REF##*/}
+
+          echo "TARGET_REPOSITORY=$TARGET_REPOSITORY" | tee -a "$GITHUB_ENV"
+          echo "TARGET_REPOSITORY_OWNER=$TARGET_REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
+          echo "TARGET_REPOSITORY_NAME=$TARGET_REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
+          echo "TARGET_PR_NUM=$TARGET_PR_NUM" | tee -a "$GITHUB_ENV"
+
+      - name: Checkout commit
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Load freeze environment
+        run: |
+          ./.github/workflows/scripts/freeze-environment.py \
+            --repository "${{ env.TARGET_REPOSITORY }}" | \
+            tee -a "$GITHUB_ENV"
+
+      - name: Create application token for the current repository
+        uses: actions/create-github-app-token@v1
+        id: current-repository-app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+
+      - name: Get pull-request reviews
+        env:
+          GITHUB_TOKEN: ${{ steps.current-repository-app-token.outputs.token }}
+          STATE_NAME: freeze
+        run: |
+          if [[ "$FREEZE" == "true" ]]; then
+            REVIEWS=$(gh pr view ${{ env.PR_NUM }} \
+              --repo "${{ github.repository }}" \
+              --json reviews \
+              --jq '.reviews // [] |
+                map(select(
+                  (.author.login | ascii_downcase) as $author |
+                  env.FREEZE_APPROVERS | fromjson | map(ascii_downcase) | index($author)
+                )) |
+                map(.state)' || echo "[]")
+
+            echo "Matching reviews: $REVIEWS"
+
+            ANY_CHANGES_REQUESTED=$(echo "$REVIEWS" | \
+              jq --raw-output 'map(select(. | ascii_downcase == "changes_requested")) | length > 0')
+            ANY_APPROVED=$(echo "$REVIEWS" | \
+              jq --raw-output 'map(select(. | ascii_downcase == "approved")) | length > 0')
+
+            echo "ANY_CHANGES_REQUESTED=$ANY_CHANGES_REQUESTED" | tee -a "$GITHUB_ENV"
+            echo "ANY_APPROVED=$ANY_APPROVED" | tee -a "$GITHUB_ENV"
+
+            if [[ "$ANY_APPROVED" == "true" ]] && [[ "$ANY_CHANGES_REQUESTED" == "false" ]]; then
+              STATE="success"
+              DESCRIPTION="Exception approved to bypass the freeze"
+            else
+              STATE="error"
+              DESCRIPTION="The repository is frozen"
+            fi
+            [[ -n "$FREEZE_REASON" ]] && DESCRIPTION="$DESCRIPTION ($FREEZE_REASON)"
+          else
+            STATE="success"
+            DESCRIPTION="The repository is not frozen"
+          fi
+
+          echo "DISPATCH_DATA<<EOF" | tee -a "$GITHUB_ENV"
+          echo '{' | tee -a "$GITHUB_ENV"
+          echo '  "context": "'"${STATUS_NAME}"'",' | tee -a "$GITHUB_ENV"
+          echo '  "target_url": "'"${{ github.event.pull_request.html_url }}"'",' | tee -a "$GITHUB_ENV"
+          echo '  "state": "'"${STATE}"'",' | tee -a "$GITHUB_ENV"
+          echo '  "description": "'"${DESCRIPTION}"'"' | tee -a "$GITHUB_ENV"
+          echo '}' | tee -a "$GITHUB_ENV"
+          echo "EOF" |tee -a "$GITHUB_ENV"
+
+      - name: Create application token for the target repository
+        uses: actions/create-github-app-token@v1
+        id: target-repository-app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          owner: ${{ env.TARGET_REPOSITORY_OWNER }}
+          repositories: ${{ env.TARGET_REPOSITORY_NAME }}
+
+      - name: Get target repository pull request git sha
+        run: |
+          GIT_SHA=$(curl \
+              --request GET \
+              --fail-with-body \
+              --header "Authorization: Bearer ${{ steps.target-repository-app-token.outputs.token }}"
+              --url "https://api.github.com/repos/${{ env.TARGET_REPOSITORY }}/pulls/${{ env.TARGET_PR_NUM }}" | \
+            jq -r '.head.sha')
+          echo "GIT_SHA=$GIT_SHA" | tee -a "$GITHUB_ENV"
+
+      - name: Post authorization on pull request
+        run: |
+          curl \
+            --fail-with-body \
+            --request POST \
+            --header "Accept: application/vnd.github.v3+json" \
+            --header "Authorization: Bearer ${{ steps.target-repository-app-token.outputs.token }}" \
+            --url "https://api.github.com/repos/${{ env.TARGET_REPOSITORY }}/statuses/${{ env.GIT_SHA }}" \
+            --data "$DISPATCH_DATA"
+
+      - name: Update labels in pull request
+        env:
+          GITHUB_TOKEN: ${{ steps.current-repository-app-token.outputs.token }}
+        run: |
+          if [[ "$ANY_CHANGES_REQUESTED" == "true" ]]; then
+            REMOVE_LABEL=requested,approved
+            ADD_LABEL=rejected
+          elif [[ "$ANY_APPROVED" == "true" ]]; then
+            REMOVE_LABEL=requested,rejected
+            ADD_LABEL=approved
+          else
+            REMOVE_LABEL=rejected,approved
+            ADD_LABEL=requested
+          fi
+
+          gh pr edit "${{ env.HEAD_REF }}" \
+            --repo "${{ github.repository }}" \
+            --remove-label "$REMOVE_LABEL" \
+            --add-label "$ADD_LABEL"
