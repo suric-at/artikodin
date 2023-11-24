@@ -121,7 +121,7 @@ jobs:
               --fail-with-body \
               --request GET \
               --header "Accept: application/vnd.github.v3+json" \
-              --header "Authorization: Bearer ${{ steps.target-repository-app-token.outputs.token }}"
+              --header "Authorization: Bearer ${{ steps.target-repository-app-token.outputs.token }}" \
               --url "https://api.github.com/repos/${{ env.TARGET_REPOSITORY }}/pulls/${{ env.TARGET_PR_NUM }}" | \
             jq -r '.head.sha')
           echo "GIT_SHA=$GIT_SHA" | tee -a "$GITHUB_ENV"
