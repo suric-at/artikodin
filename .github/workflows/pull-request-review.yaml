@@ -29,6 +29,7 @@ jobs:
 
           echo "HEAD_REF=$HEAD_REF" | tee -a "$GITHUB_ENV"
 
+          TARGET=${HEAD_REF#*/}
           TARGET_REPOSITORY=${TARGET%/*}
           TARGET_REPOSITORY_OWNER=${TARGET_REPOSITORY%%/*}
           TARGET_REPOSITORY_NAME=${TARGET_REPOSITORY#*/}
@@ -60,7 +61,7 @@ jobs:
       - name: Get pull-request reviews
         env:
           GITHUB_TOKEN: ${{ steps.current-repository-app-token.outputs.token }}
-          STATE_NAME: freeze
+          STATUS_NAME: freeze
         run: |
           if [[ "$FREEZE" == "true" ]]; then
             REVIEWS=$(gh pr view ${{ env.PR_NUM }} \
@@ -117,8 +118,9 @@ jobs:
       - name: Get target repository pull request git sha
         run: |
           GIT_SHA=$(curl \
-              --request GET \
               --fail-with-body \
+              --request GET \
+              --header "Accept: application/vnd.github.v3+json" \
               --header "Authorization: Bearer ${{ steps.target-repository-app-token.outputs.token }}"
               --url "https://api.github.com/repos/${{ env.TARGET_REPOSITORY }}/pulls/${{ env.TARGET_PR_NUM }}" | \
             jq -r '.head.sha')

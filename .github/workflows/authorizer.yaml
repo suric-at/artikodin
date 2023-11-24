@@ -99,6 +99,7 @@ jobs:
       freeze_from: ${{ env.FREEZE_FROM }}
       freeze_to: ${{ env.FREEZE_TO }}
       freeze_details: ${{ env.FREEZE_DETAILS }}
+      freeze_approvers: ${{ env.FREEZE_APPROVERS }}
 
     steps:
       - name: Checkout commit
@@ -151,6 +152,7 @@ jobs:
       - name: Check the exception pull request
         env:
           GITHUB_TOKEN: ${{ steps.current-repository-app-token.outputs.token }}
+          FREEZE_APPROVERS: ${{ steps.check_input.outputs.freeze_approvers }}
         run: |
           PR_DETAILS=$(gh pr view "${{ env.BRANCH_NAME }}" \
             --repo "${{ github.repository }}" \
@@ -165,12 +167,29 @@ jobs:
             PR_URL=$(echo "$PR_DETAILS" | \
               jq --raw-output '.url // ""')
 
-            # TODO: we should check that the approver is authorized, and that there is no
-            # authorized approver that *rejected* the PR
-            APPROVED=$(echo "$PR_DETAILS" | \
+            REVIEWS=$(echo "$PR_DETAILS" | \
               jq --raw-output '.reviews // [] |
-                map(select(.state == "APPROVED")) |
-                length > 0')
+                map(select(
+                  (.author.login | ascii_downcase) as $author |
+                  env.FREEZE_APPROVERS | fromjson | map(ascii_downcase) | index($author)
+                )) |
+                map(.state)' || echo "[]")
+
+            echo "Matching reviews: $REVIEWS"
+
+            ANY_CHANGES_REQUESTED=$(echo "$REVIEWS" | \
+              jq --raw-output 'map(select(. | ascii_downcase == "changes_requested")) | length > 0')
+            ANY_APPROVED=$(echo "$REVIEWS" | \
+              jq --raw-output 'map(select(. | ascii_downcase == "approved")) | length > 0')
+
+            echo "ANY_CHANGES_REQUESTED=$ANY_CHANGES_REQUESTED" | tee -a "$GITHUB_ENV"
+            echo "ANY_APPROVED=$ANY_APPROVED" | tee -a "$GITHUB_ENV"
+
+            if [[ "$ANY_APPROVED" == "true" ]] && [[ "$ANY_CHANGES_REQUESTED" == "false" ]]; then
+              APPROVED=true
+            else
+              APPROVED=false
+            fi
           fi
 
           echo "PR_URL=$PR_URL" | tee -a "$GITHUB_ENV"
@@ -228,8 +247,8 @@ jobs:
         env:
           PR_NUM: ${{ needs.check_input.outputs.pull_request }}
           GITHUB_TOKEN: ${{ steps.target-repository-app-token.outputs.token }}
-          FREEZE_DETAILS: ${{ needs.check_freeze.freeze_details }}
-          FREEZE_TO: ${{ needs.check_freeze.freeze_to }}
+          FREEZE_DETAILS: ${{ needs.check_freeze.outputs.freeze_details }}
+          FREEZE_TO: ${{ needs.check_freeze.outputs.freeze_to }}
         run: |
           PR_DETAILS=$(gh pr view \
             "${{ env.PR_NUM }}" \
@@ -279,7 +298,7 @@ jobs:
       - name: Add comment for requesting exception
         uses: peter-evans/create-or-update-comment@v3
         env:
-          FREEZE_DETAILS: ${{ needs.check_freeze.freeze_details }}
+          FREEZE_DETAILS: ${{ needs.check_freeze.outputs.freeze_details }}
         with:
           token: ${{ steps.target-repository-app-token.outputs.token }}
           repository: ${{ env.TARGET_REPOSITORY }}
