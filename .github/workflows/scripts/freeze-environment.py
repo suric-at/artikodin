@@ -8,11 +8,12 @@
 
 import argparse
 import datetime
-import yaml
-import sys
-import re
 import fnmatch
+import json
 import os
+import re
+import sys
+import yaml
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 GIT_DIR = os.path.join(CURRENT_DIR, '..', '..', '..')
@@ -56,6 +57,22 @@ def force_list(value):
         return []
 
 
+def clean_approvers(approvers):
+    valid_approvers = []
+
+    for approver in approvers:
+        if isinstance(approver, str):
+            approver = {'handle': approver}
+        elif not isinstance(approver, dict):
+            continue
+        elif 'handle' not in approver:
+            continue
+
+        valid_approvers.append(approver)
+
+    return valid_approvers
+
+
 def find_schedule_for(repository):
     now = datetime.datetime.now(datetime.timezone.utc)
 
@@ -64,6 +81,11 @@ def find_schedule_for(repository):
     with open(os.path.join(CONFIG_DIR, 'repositories.yaml'), 'r') as f:
         repositories = yaml.safe_load(f)
         global_repository = matches(repository, repositories)
+
+    # Global approvers
+    global_approvers = []
+    with open(os.path.join(CONFIG_DIR, 'approvers.yaml'), 'r') as f:
+        global_approvers = force_list(yaml.safe_load(f))
 
     # Find all files in the schedules directory, recursively
     for root, dirs, files in os.walk(SCHEDULES_DIR):
@@ -93,7 +115,21 @@ def find_schedule_for(repository):
 
                 # Check if now is in the window
                 if schedule['from'] <= now <= schedule['to']:
-                    return schedule
+                    all_approvers = (
+                        clean_approvers(force_list(schedule.get('approvers'))) +
+                        clean_approvers(global_approvers))
+
+                    approvers = list({
+                        approver['handle']: approver
+                        for approver in all_approvers
+                    }.values())
+
+                    return {
+                        'reason': schedule.get('reason'),
+                        'from': schedule['from'],
+                        'to': schedule['to'],
+                        'approvers': approvers,
+                    }
 
 
 def main():
@@ -112,9 +148,14 @@ def main():
     schedule = find_schedule_for(args.repository)
     if schedule:
         print('FREEZE=true')
-        print('FREEZE_REASON={}'.format(schedule.get('reason', '')))
+        print('FREEZE_REASON={}'.format(schedule.get('reason') or ''))
         print('FREEZE_FROM={}'.format(schedule['from'].isoformat()))
         print('FREEZE_TO={}'.format(schedule['to'].isoformat()))
+        print('FREEZE_APPROVERS={}'.format(json.dumps(
+            [approver['handle'] for approver in schedule['approvers']])))
+        print('FREEZE_REVIEWERS={}'.format(json.dumps(
+            [approver['handle'] for approver in schedule['approvers']
+             if approver.get('reviewer')])))
     else:
         print('FREEZE=false')
 

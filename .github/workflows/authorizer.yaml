@@ -106,7 +106,7 @@ jobs:
 
       - name: Check freeze status
         run: |
-          ./.github/workflows/scripts/check_schedule.py \
+          ./.github/workflows/scripts/freeze-environment.py \
             --repository "${{ needs.check_input.outputs.target_repository }}" | \
             tee -a "$GITHUB_ENV"
 
