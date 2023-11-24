@@ -168,12 +168,11 @@ jobs:
               jq --raw-output '.url // ""')
 
             REVIEWS=$(echo "$PR_DETAILS" | \
-              jq --raw-output '.reviews // [] |
-                map(select(
-                  (.author.login | ascii_downcase) as $author |
-                  env.FREEZE_APPROVERS | fromjson | map(ascii_downcase) | index($author)
-                )) |
-                map(.state)' || echo "[]")
+              jq '.reviews // [] | group_by(.author.login) | .[] | max_by(.submittedAt)' | \
+              jq -s '.' | \
+              jq 'map(select((.author.login | ascii_downcase) as $author |
+                  env.FREEZE_APPROVERS | fromjson | map(ascii_downcase) | index($author)))' | \
+              jq --raw-output 'map(.state)')
 
             echo "Matching reviews: $REVIEWS"
 

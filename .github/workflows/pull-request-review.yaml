@@ -66,13 +66,14 @@ jobs:
           if [[ "$FREEZE" == "true" ]]; then
             REVIEWS=$(gh pr view ${{ env.PR_NUM }} \
               --repo "${{ github.repository }}" \
-              --json reviews \
-              --jq '.reviews // [] |
-                map(select(
-                  (.author.login | ascii_downcase) as $author |
-                  env.FREEZE_APPROVERS | fromjson | map(ascii_downcase) | index($author)
-                )) |
-                map(.state)' || echo "[]")
+              --json reviews)
+
+            REVIEWS=$(echo "$REVIEWS" | \
+              jq '.reviews // [] | group_by(.author.login) | .[] | max_by(.submittedAt)' | \
+              jq -s '.' | \
+              jq 'map(select((.author.login | ascii_downcase) as $author |
+                  env.FREEZE_APPROVERS | fromjson | map(ascii_downcase) | index($author)))' | \
+              jq --raw-output 'map(.state)')
 
             echo "Matching reviews: $REVIEWS"
 
