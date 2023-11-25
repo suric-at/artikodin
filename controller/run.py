@@ -761,8 +761,14 @@ class Run(object):
             exception_request_pr.edit(state='closed')
 
             # Delete the branch too
-            self.logger.info('Deleting branch %s', exception_request_pr_branch)
-            ctrl_repo.get_git_ref(ref=f"heads/{exception_request_pr_branch}").delete()
+            try:
+                self.logger.info('Deleting branch %s', exception_request_pr_branch)
+                ctrl_repo.get_git_ref(ref=f"heads/{exception_request_pr_branch}").delete()
+            except github.GithubException as e:
+                if e.status != 404:
+                    raise
+
+                self.logger.info('Branch %s does not exist; ignoring', exception_request_pr_branch)
 
             return {
                 'skip_status_update': True,
@@ -1063,8 +1069,14 @@ class Run(object):
                 exception_request_pr.edit(state='closed')
 
             # Delete the branch
-            self.logger.info('Deleting branch %s', branch.name)
-            ctrl_repo.get_git_ref(ref=f"heads/{branch.name}").delete()
+            try:
+                self.logger.info('Deleting branch %s', branch.name)
+                ctrl_repo.get_git_ref(ref=f"heads/{branch.name}").delete()
+            except github.GithubException as e:
+                if e.status != 404:
+                    raise
+
+                self.logger.info('Branch %s does not exist; ignoring', branch.name)
 
             self.logger.info('Getting target pull request %s', m.group('pr_num'))
             target_pr = target_repo.get_pull(int(m.group('pr_num')))
