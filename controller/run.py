@@ -758,6 +758,11 @@ class Run(object):
                 'The target pull request is no longer open; '
                 'closing this exception request')
             exception_request_pr.edit(state='closed')
+
+            # Delete the branch too
+            self.logger.info('Deleting branch %s', exception_request_pr_branch)
+            exception_request_pr.head.ref.delete()
+
             return {
                 'skip_status_update': True,
                 'exists': False,
