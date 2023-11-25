@@ -702,6 +702,14 @@ class Run(object):
         self.logger.info('Adding labels to exception request pull request %s', exception_request_pr_branch)
         exception_request_pr.add_to_labels(*self.cfg.labels_pending)
 
+        # Commenting on the target pull request
+        template_args.update({
+            'exception_request_pr_url': exception_request_pr.html_url,
+        })
+        exception_request_comment = format_template('exception-request-comment.md', template_args)
+        self.logger.info('Commenting on target pull request %s', self.args.pull_request)
+        target_pr.create_issue_comment(exception_request_comment)
+
         return {
             'exists': True,
             'approved': False,
