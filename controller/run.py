@@ -759,6 +759,7 @@ class Run(object):
                 'closing this exception request')
             exception_request_pr.edit(state='closed')
             return {
+                'skip_status_update': True,
                 'exists': False,
                 'approved': False,
                 'requested': False,
@@ -1242,7 +1243,8 @@ class Run(object):
             freeze_window = None
             allow = False
 
-        self._push_status(allow, freeze_window, pr_status)
+        if not pr_status.get('skip_status_update'):
+            self._push_status(allow, freeze_window, pr_status)
 
     def cron_update(self):
         now = datetime.datetime.now(datetime.timezone.utc)
