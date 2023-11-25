@@ -687,7 +687,7 @@ class Run(object):
 
         # Edit the branch to point to the new commit
         self.logger.info('Updating branch %s to point to new commit %s', exception_request_pr_branch, new_commit.sha)
-        new_branch_ref.edit(sha=new_commit.sha)
+        new_branch_ref.edit(sha=new_commit.sha, force=True)
 
         # Create a new pull request
         self.logger.info('Creating new pull request for branch %s', exception_request_pr_branch)
