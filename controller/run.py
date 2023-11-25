@@ -706,9 +706,9 @@ class Run(object):
         template_args.update({
             'exception_request_pr_url': exception_request_pr.html_url,
         })
-        exception_request_comment = format_template('exception-request-comment.md', template_args)
+        target-pull-request-comment = format_template('target-pull-request-comment.md', template_args)
         self.logger.info('Commenting on target pull request %s', self.args.pull_request)
-        target_pr.create_issue_comment(exception_request_comment)
+        target_pr.create_issue_comment(target-pull-request-comment)
 
         return {
             'exists': True,
