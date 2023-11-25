@@ -1,0 +1,5 @@
+up:
+  - python: auto
+  - custom:
+      dir: controller
+      meet: pip install -r requirements.txt
