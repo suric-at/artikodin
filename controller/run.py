@@ -812,7 +812,13 @@ class Run(object):
         # Some label logic
         non_controller_labels = [l for l in exception_request_pr_labels if l not in self.cfg.labels]
         requested = self.cfg.is_exception_requested(exception_request_pr_labels)
+
+        # Check if the exception request needs to be moved to the 'requested' state
         moved_to_requested = move_to_requested and not requested
+        if moved_to_requested:
+            # Add the reviewers
+            self.logger.info('Adding reviewers')
+            exception_request_pr.create_review_request(reviewers=freeze_window.get_reviewers())
 
         # Compute the expected labels
         expected_labels = set(non_controller_labels)

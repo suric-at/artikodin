@@ -1,0 +1,56 @@
+name: Check configuration files
+
+
+on:
+  # Runs on a push
+  push:
+    branches:
+      - main
+    paths:
+      - 'configuration/**'
+      - 'controller/**'
+
+  # Runs on a pull request
+  pull_request:
+    branches:
+      - main
+
+  # Allow to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.client_payload.repository || inputs.repository }}-${{ github.event.client_payload.pull_request || inputs.pull_request }}
+  cancel-in-progress: false
+
+
+jobs:
+  run_update:
+    name: Run controller in configuration check mode
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout commit
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r controller/requirements.txt
+
+      - name: Run configuration check
+        run: |
+          ./controller/run.py \
+            --app-id "dummy" \
+            --private-key "dummy" \
+            --controller-repository "${{ github.repository }}" \
+            check-config
+

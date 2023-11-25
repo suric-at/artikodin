@@ -68,7 +68,7 @@ runs:
       with:
         token: ${{ steps.action-app-token.outputs.token }}
         repository: ${{ env.ACTION_REPOSITORY }}
-        event-type: authorizer
+        event-type: request
         client-payload: |
           {
             "repository": "${{ env.REPOSITORY }}",
