@@ -800,11 +800,11 @@ class Run(object):
             exception_request_pr.edit(state='closed')
 
             if target_pr.merged:
-                self.logger.info('Adding target merged labels to exception request %s',
+                self.logger.info('Adding target merged labels %s to exception request %s',
                                  self.cfg.labels_target_merged, exception_request_pr_branch)
                 exception_request_pr.add_to_labels(*self.cfg.labels_target_merged)
             else:
-                self.logger.info('Adding target closed labels to exception request %s',
+                self.logger.info('Adding target closed labels %s to exception request %s',
                                  self.cfg.labels_target_closed, exception_request_pr_branch)
                 exception_request_pr.add_to_labels(*self.cfg.labels_target_closed)
 
