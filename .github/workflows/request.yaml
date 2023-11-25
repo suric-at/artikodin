@@ -24,7 +24,7 @@ on:
 
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.client_payload.repository || inputs.repository }}-${{ github.event.client_payload.pull_request || inputs.pull_request }}
+  group: ${{ github.workflow }}-request-${{ github.event.client_payload.repository || inputs.repository }}-${{ github.event.client_payload.pull_request || inputs.pull_request }}
   cancel-in-progress: false
 
 

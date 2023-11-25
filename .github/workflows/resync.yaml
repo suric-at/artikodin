@@ -11,7 +11,7 @@ on:
 
 
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-resync
   cancel-in-progress: false
 
 

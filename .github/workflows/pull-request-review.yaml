@@ -11,6 +11,11 @@ on:
       - "exception-request/*"
 
 
+concurrency:
+  group: ${{ github.workflow }}-review-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: true
+
+
 jobs:
   run_update:
     name: Run controller in update mode

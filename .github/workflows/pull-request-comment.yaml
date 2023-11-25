@@ -8,6 +8,11 @@ on:
       - edited # TODO: remove
 
 
+concurrency:
+  group: ${{ github.workflow }}-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+
 jobs:
   handle_comment:
     name: Handle pull request comment
