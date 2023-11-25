@@ -5,6 +5,7 @@ on:
   issue_comment:
     types:
       - created
+      - edited # TODO: remove
 
 
 jobs:
@@ -29,34 +30,39 @@ jobs:
       PR_NUM: ${{ github.event.issue.number }}
 
     steps:
-      - name: Checkout commit
-        uses: actions/checkout@v4
-        with:
-          ref: main
+      - env:
+          CONTEXT: ${{ toJson(github) }}
+        run:
+          echo "$CONTEXT" | jq
 
-      - name: Setup python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3'
-          cache: 'pip'
+      # - name: Checkout commit
+        # uses: actions/checkout@v4
+        # with:
+          # ref: main
 
-      - name: Install dependencies
-        run: |
-          pip install -r controller/requirements.txt
+      # - name: Setup python
+        # uses: actions/setup-python@v4
+        # with:
+          # python-version: '3'
+          # cache: 'pip'
 
-      - name: Run update script
-        env:
-          REPOSITORY: ${{ github.repository }}
-          TARGET_REPOSITORY: ${{ github.event.client_payload.repository || inputs.repository }}
-          TARGET_PULL_REQUEST: ${{ github.event.client_payload.pull_request || inputs.pull_request }}
-          APP_ID: ${{ secrets.APP_ID }}
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-        run: |
-          ./controller/run.py \
-            --app-id "$APP_ID" \
-            --private-key "$PRIVATE_KEY" \
-            --controller-repository "${{ env.REPOSITORY }}" \
-            request \
-            --repository "${{ env.TARGET_REPOSITORY }}" \
-            --pull-request "${{ env.TARGET_PULL_REQUEST }}" \
+      # - name: Install dependencies
+        # run: |
+          # pip install -r controller/requirements.txt
+
+      # - name: Run update script
+        # env:
+          # REPOSITORY: ${{ github.repository }}
+          # TARGET_REPOSITORY: ${{ github.event.client_payload.repository || inputs.repository }}
+          # TARGET_PULL_REQUEST: ${{ github.event.client_payload.pull_request || inputs.pull_request }}
+          # APP_ID: ${{ secrets.APP_ID }}
+          # PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+        # run: |
+          # ./controller/run.py \
+            # --app-id "$APP_ID" \
+            # --private-key "$PRIVATE_KEY" \
+            # --controller-repository "${{ env.REPOSITORY }}" \
+            # request \
+            # --repository "${{ env.TARGET_REPOSITORY }}" \
+            # --pull-request "${{ env.TARGET_PULL_REQUEST }}" \
 
