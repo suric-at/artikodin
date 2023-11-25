@@ -1540,7 +1540,7 @@ def main():
             ('repository', 'pull_request'),
         )
         for c in required_combinations:
-            if getattr(args, c[0]) != getattr(args, c[1]):
+            if (getattr(args, c[0]) is None) != (getattr(args, c[1]) is None):
                 raise argparse.ArgumentError(None, "Both --{} and --{} are required if one is specified".format(*c))
 
         if args.controller_pull_request:
