@@ -422,6 +422,9 @@ class Run(object):
         exception_request_body = format_template('exception-request-body.md', template_args)
         exception_request_title = format_template('exception-request-title.md', template_args)
 
+        # Get the controller repository
+        repo = self.gh.get_repo(self.args.controller_repository)
+
         # Get the exceptions branch
         self.logger.info('Getting exceptions branch %s', EXCEPTIONS_BASE_BRANCH)
         exceptions_branch = repo.get_branch(branch=EXCEPTIONS_BASE_BRANCH)

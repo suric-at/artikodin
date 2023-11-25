@@ -61,9 +61,9 @@ jobs:
           ./controller/run.py \
             --app-id "$APP_ID" \
             --private-key "$PRIVATE_KEY" \
-            --controller-repository "$REPOSITORY" \
+            --controller-repository "${{ env.REPOSITORY }}" \
             update \
-            --repository "$TARGET_REPOSITORY" \
-            --pull-request "$TARGET_PULL_REQUEST" \
-            --commit "$TARGET_GIT_SHA"
+            --repository "${{ env.TARGET_REPOSITORY }}" \
+            --pull-request "${{ env.TARGET_PULL_REQUEST }}" \
+            --commit "${{ env.TARGET_GIT_SHA }}"
 
