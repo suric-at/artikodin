@@ -753,6 +753,7 @@ class Run(object):
 
         # Check if the target pull request is still open
         if target_pr.state != 'open':
+            # Close the exception request PR
             self.logger.info('Target pull request %s #%s is no longer open; closing exception request %s', self.args.repository, self.args.pull_request, exception_request_pr_branch)
             exception_request_pr.create_issue_comment(
                 'The target pull request is no longer open; '
@@ -761,7 +762,7 @@ class Run(object):
 
             # Delete the branch too
             self.logger.info('Deleting branch %s', exception_request_pr_branch)
-            exception_request_pr.head.ref.delete()
+            ctrl_repo.get_git_ref(ref=f"heads/{exception_request_pr_branch}").delete()
 
             return {
                 'skip_status_update': True,
