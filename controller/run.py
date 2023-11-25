@@ -20,6 +20,7 @@ import re
 import requests
 import sys
 import yaml
+import time
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 GIT_DIR = os.path.join(CURRENT_DIR, '..')
@@ -450,8 +451,23 @@ class Run(object):
             )
 
             # Get the new branch
-            self.logger.info('Getting new branch %s', exception_request_pr_branch)
-            new_branch = repo.get_branch(branch=exception_request_pr_branch)
+            retries = 5
+            while retries > 0:
+                try:
+                    self.logger.info('Getting new branch %s', exception_request_pr_branch)
+                    new_branch = repo.get_branch(branch=exception_request_pr_branch)
+                    break
+                except github.GithubException as e:
+                    if e.status != 404:
+                        raise
+
+                    retries -= 1
+                    if retries == 0:
+                        raise
+
+                    self.logger.info('Branch %s does not exist yet; retrying', exception_request_pr_branch)
+                    time.sleep(1)
+                    continue
 
         # Get the parent commit
         self.logger.info('Getting parent commit')
