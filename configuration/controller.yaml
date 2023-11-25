@@ -1,0 +1,58 @@
+# Configure the exception requests
+exceptions:
+  # Configure the base branch to use when creating an exception
+  # request pull request. The base branch needs to at least contain
+  # up to date github workflows to handle the pull request reviews.
+  base_branch: exceptions
+
+  # Configure the format that the exception request branches will
+  # take. This needs to contain {repository} and {pr_num} in order
+  # to extract the repository (which will be stored in full, org/name
+  # format) and pull request number of the exception request
+  branch_format: exception-request/{repository}/{pr_num}
+
+# Configure the commit statuses
+status:
+  # Configure the commit status context that will be used for the
+  # status set by the controller. This needs to be something unique
+  # and only used by the controller.
+  context: freeze
+
+# Configure the active windows
+windows:
+  # Configure the name of the base branch used to keep track of the
+  # currently active freeze windows. If this branch does not exist,
+  # it will automatically be created with a root, empty commit.
+  base_branch: active_windows
+
+  # Configure the format that the active windows branches will take.
+  # This needs to contain {freeze_window_id} in order to extract the
+  # freeze window for which this branch is. Those branches contain
+  # nothing and are just used for tracking for the cron updates.
+  branch_format: active-freeze/{freeze_window_id}
+
+# Configure the labels that will be put on pull requests. All
+# categories need to have at least one label set.
+labels:
+  # The base labels will be placed on all the exception request
+  # pull requests, no matter their state.
+  base:
+    - exceptions
+  # The pending labels will be placed on exception request
+  # pull requests that have been opened automatically, but for
+  # which nobody has requested an exception yet
+  pending:
+    - pending
+  # The requested labels will be placed on exception rquest
+  # pull requests that are currently waiting on approval, i.e.
+  # an exception has been requested
+  requested:
+    - requested
+  # The approved labels will be placed on approved exception
+  # request pull requests.
+  approved:
+    - approved
+  # The approved labels will be placed on rejected (change requested)
+  # exception request pull requests.
+  rejected:
+    - rejected

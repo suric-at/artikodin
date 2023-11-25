@@ -22,20 +22,12 @@ import sys
 import yaml
 import time
 
+
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 GIT_DIR = os.path.join(CURRENT_DIR, '..')
 CONFIG_DIR = os.path.join(GIT_DIR, 'configuration')
 SCHEDULES_DIR = os.path.join(CONFIG_DIR, 'schedules')
 TEMPLATES_DIR = os.path.join(CURRENT_DIR, 'templates')
-
-EXCEPTIONS_BASE_BRANCH = 'exceptions'
-EXCEPTIONS_BRANCH_FORMAT = 'exception-request/{repository}/{pr_num}'
-EXCEPTIONS_BRANCH_REGEX = re.compile(r'^exception-request/(?P<repository>.+)/(?P<pr_num>\d+)$')
-
-COMMIT_STATUS_CONTEXT = 'freeze'
-
-ACTIVE_WINDOW_BRANCH_PREFIX = 'active-freeze/'
-ACTIVE_WINDOWS_ROOT_BRANCH = 'active_windows'
 
 
 class GithubApp(object):
@@ -177,10 +169,6 @@ class FreezeWindow(object):
         return self._id
 
     @property
-    def branch_name(self):
-        return ACTIVE_WINDOW_BRANCH_PREFIX + self._id
-
-    @property
     def only(self):
         return self._repo_only
 
@@ -269,8 +257,22 @@ class ConfigData(object):
         self._global_repositories = None
         self._global_approvers = None
         self._all_freeze_windows = None
+        self._controller = None
 
         self.logger = logging.getLogger('config-data')
+
+    def check(self):
+        # Check loading the controller configuration
+        self.controller
+
+        # Check loading the global repositories
+        self.global_repositories
+
+        # Check loading the global approvers
+        self.global_approvers
+
+        # Check loading the freeze windows
+        self.freeze_windows
 
     @property
     def global_repositories(self):
@@ -289,6 +291,209 @@ class ConfigData(object):
         if self._all_freeze_windows is None:
             self._all_freeze_windows = list(self.__get_all_freeze_windows())
         return self._all_freeze_windows
+
+    @property
+    def controller(self):
+        if self._controller is None:
+            self._controller = self.__get_controller_config()
+        return self._controller
+
+    @property
+    def exceptions_base_branch(self):
+        return self.controller['exceptions']['base_branch']
+
+    @property
+    def exceptions_branch_format(self):
+        return self.controller['exceptions']['branch_format']
+
+    @property
+    def exceptions_branch_regex(self):
+        return re.compile("^{}$".format(self.exceptions_branch_format.
+            replace('{repository}', r'(?P<repository>.+)').
+            replace('{pr_num}', r'(?P<pr_num>\d+)')))
+
+    @property
+    def exceptions_branch_prefix(self):
+        if not hasattr(self, '_exceptions_branch_prefix'):
+            # Get all characters from the branch format until the first '{'
+            self._exceptions_branch_prefix = self.exceptions_branch_format[:self.exceptions_branch_format.index('{')]
+        return self._exceptions_branch_prefix
+
+    @property
+    def commit_status_context(self):
+        return self.controller['status']['context']
+
+    @property
+    def active_windows_base_branch(self):
+        return self.controller['windows']['base_branch']
+
+    @property
+    def active_windows_branch_format(self):
+        return self.controller['windows']['branch_format']
+
+    @property
+    def active_windows_branch_regex(self):
+        return re.compile("^{}$".format(self.active_windows_branch_format.
+            replace('{freeze_window_id}', r'(?P<freeze_window_id>[a-zA-Z0-9\-_]+)')))
+
+    @property
+    def active_windows_branch_prefix(self):
+        if not hasattr(self, '_active_windows_branch_prefix'):
+            # Get all characters from the branch format until the first '{'
+            self._active_windows_branch_prefix = self.active_windows_branch_format[:self.active_windows_branch_format.index('{')]
+        return self._active_windows_branch_prefix
+
+    @property
+    def labels(self):
+        return set(label for labels in self.controller['labels'].values() for label in labels)
+
+    @property
+    def labels_base(self):
+        return set(self.controller['labels']['base'])
+
+    @property
+    def labels_pending(self):
+        return self.labels_base | set(self.controller['labels']['pending'])
+
+    @property
+    def labels_requested(self):
+        return self.labels_base | set(self.controller['labels']['requested'])
+
+    @property
+    def labels_approved(self):
+        return self.labels_base | set(self.controller['labels']['approved'])
+
+    @property
+    def labels_rejected(self):
+        return self.labels_base | set(self.controller['labels']['rejected'])
+
+    def is_exception_requested(self, labels):
+        labels = set(labels)
+        return any(
+            labels & expected_labels == expected_labels
+            for expected_labels in [
+                set(self.controller['labels']['requested']),
+                set(self.controller['labels']['approved']),
+                set(self.controller['labels']['rejected']),
+            ]
+        )
+
+    @property
+    def labels_exception_is_requested(self):
+        return self.labels_base + set(self.controller['labels']['requested'])
+
+    def __get_controller_config(self):
+        config_controller_path = os.path.join(CONFIG_DIR, 'controller.yaml')
+        if not os.path.exists(config_controller_path):
+            raise RuntimeError("Controller configuration file does not exist")
+
+        with open(config_controller_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+            configuration_errors = self.__check_controller_config(config)
+            if configuration_errors:
+                raise RuntimeError("Controller configuration is invalid:\n - {}".format('\n - '.join(configuration_errors)))
+
+            return config
+
+    def __check_controller_config(self, config):
+        validate_dict = lambda v: isinstance(v, dict)
+        validate_str = lambda v: isinstance(v, str)
+        validate_nonempty_list = lambda v: isinstance(v, list) and len(v) > 0
+
+        def validate_branch_name(*formats):
+            def branch_validator(value):
+                if not isinstance(value, str):
+                    return False
+
+                check_value = value
+                if formats:
+                    # Check that the branch has a prefix
+                    if value.startswith('{'):
+                        raise RuntimeError("branch name '{}' cannot start with a parameter".format(value))
+
+                    # Check that the branch has all the required formats
+                    for f in formats:
+                        formatted = '{{{}}}'.format(f)
+                        if formatted not in value:
+                            raise RuntimeError("missing format '{}' in branch name '{}'".format(f, value))
+                        check_value = check_value.replace(formatted, 'xxx')
+
+                # Check that the branch name only contains valid characters
+                if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-_/]*[a-zA-Z0-9])?$', check_value):
+                    print("CHECK VALUE IS {}".format(check_value))
+                    raise RuntimeError("invalid characters in branch name '{}'".format(value))
+
+                return True
+
+            return branch_validator
+
+        validators = {
+            'exceptions': {
+                '_validate': validate_dict,
+                'base_branch': {
+                    '_validate': validate_branch_name(),
+                },
+                'branch_format': {
+                    '_validate': validate_branch_name('repository', 'pr_num'),
+                },
+            },
+            'status': {
+                '_validate': validate_dict,
+                'context': {
+                    '_validate': validate_str,
+                },
+            },
+            'windows': {
+                '_validate': validate_dict,
+                'base_branch': {
+                    '_validate': validate_branch_name(),
+                },
+                'branch_format': {
+                    '_validate': validate_branch_name('freeze_window_id'),
+                },
+            },
+            'labels': {
+                '_validate': validate_dict,
+                'base': {
+                    '_validate': validate_nonempty_list,
+                },
+                'approved': {
+                    '_validate': validate_nonempty_list,
+                },
+                'rejected': {
+                    '_validate': validate_nonempty_list,
+                },
+                'requested': {
+                    '_validate': validate_nonempty_list,
+                },
+                'pending': {
+                    '_validate': validate_nonempty_list,
+                },
+            },
+        }
+
+        def recursive_validate_configuration(validators, cfg):
+            errors = []
+
+            for k, v in cfg.items():
+                if k not in validators:
+                    errors.append("unknown configuration key '{}'".format(k))
+                    continue
+
+                if '_validate' in validators[k]:
+                    try:
+                        if not validators[k]['_validate'](v):
+                            errors.append("invalid value for configuration key '{}'".format(k))
+                    except RuntimeError as e:
+                        errors.append("invalid value for configuration key '{}': {}".format(k, e))
+
+                if isinstance(v, dict):
+                    errors.extend(recursive_validate_configuration(validators[k], v))
+
+            return errors
+
+        return recursive_validate_configuration(validators, config)
 
     def __get_global_repositories(self):
         config_repositories_path = os.path.join(CONFIG_DIR, 'repositories.yaml')
@@ -368,13 +573,12 @@ def format_template(template_name, template_args):
 
 
 class Run(object):
-    def __init__(self, gh, args):
+    def __init__(self, gh, args, cfg=None):
         self.gh = gh
         self.args = args
         self.logger = logging.getLogger('run')
-        self.cfg = ConfigData(default_org=self.args.controller_repository_owner)
+        self.cfg = cfg or ConfigData(default_org=self.args.controller_repository_owner)
 
-        self._cached_repo = {}
         self._cached_repo_branches = {}
 
     def repo_branches(self, repo, refresh=False):
@@ -424,28 +628,28 @@ class Run(object):
         exception_request_title = format_template('exception-request-title.md', template_args)
 
         # Get the controller repository
-        repo = self.gh.get_repo(self.args.controller_repository)
+        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
 
         # Get the exceptions branch
-        self.logger.info('Getting exceptions branch %s', EXCEPTIONS_BASE_BRANCH)
-        exceptions_branch = repo.get_branch(branch=EXCEPTIONS_BASE_BRANCH)
+        self.logger.info('Getting exceptions branch %s', self.cfg.exceptions_base_branch)
+        exceptions_branch = repo.get_branch(branch=self.cfg.exceptions_base_branch)
 
         # Check if the exceptions branch exists
         try:
-            self.logger.info('Checking if exception request branch %s exists', EXCEPTIONS_BASE_BRANCH)
-            new_branch = repo.get_branch(branch=exception_request_pr_branch)
+            self.logger.info('Checking if exception request branch %s exists', self.cfg.exceptions_base_branch)
+            new_branch = ctrl_repo.get_branch(branch=exception_request_pr_branch)
 
             self.logger.info('Get ref to exception request branch %s', exception_request_pr_branch)
-            new_branch_ref = repo.get_git_ref(ref=f"heads/{exception_request_pr_branch}")
+            new_branch_ref = ctrl_repo.get_git_ref(ref=f"heads/{exception_request_pr_branch}")
         except github.GithubException as e:
             if e.status != 404:
                 raise
 
-            self.logger.info('Creating exception request branch %s', EXCEPTIONS_BASE_BRANCH)
+            self.logger.info('Creating exception request branch %s', self.cfg.exceptions_base_branch)
 
             # Create a new branch from the exceptions branch
             self.logger.info('Creating new branch %s', exception_request_pr_branch)
-            new_branch_ref = repo.create_git_ref(
+            new_branch_ref = ctrl_repo.create_git_ref(
                 ref=f"refs/heads/{exception_request_pr_branch}",
                 sha=exceptions_branch.commit.sha,
             )
@@ -455,7 +659,7 @@ class Run(object):
             while retries > 0:
                 try:
                     self.logger.info('Getting new branch %s', exception_request_pr_branch)
-                    new_branch = repo.get_branch(branch=exception_request_pr_branch)
+                    new_branch = ctrl_repo.get_branch(branch=exception_request_pr_branch)
                     break
                 except github.GithubException as e:
                     if e.status != 404:
@@ -471,11 +675,11 @@ class Run(object):
 
         # Get the parent commit
         self.logger.info('Getting parent commit')
-        parent_commit = repo.get_git_commit(sha=exceptions_branch.commit.sha)
+        parent_commit = ctrl_repo.get_git_commit(sha=exceptions_branch.commit.sha)
 
         # Create a new empty commit in the new branch
         self.logger.info('Creating new commit in branch %s', exception_request_pr_branch)
-        new_commit = repo.create_git_commit(
+        new_commit = ctrl_repo.create_git_commit(
             message=f"Add exception request for {self.args.repository}#{self.args.pull_request}",
             tree=new_branch.commit.commit.tree,
             parents=[parent_commit],
@@ -487,33 +691,35 @@ class Run(object):
 
         # Create a new pull request
         self.logger.info('Creating new pull request for branch %s', exception_request_pr_branch)
-        exception_request_pr = repo.create_pull(
+        exception_request_pr = ctrl_repo.create_pull(
             title=exception_request_title,
             body=exception_request_body,
-            base=EXCEPTIONS_BASE_BRANCH,
+            base=self.cfg.exceptions_base_branch,
             head=exception_request_pr_branch,
         )
 
         # Add labels to pull request 'exceptions' and 'pending'
         self.logger.info('Adding labels to exception request pull request %s', exception_request_pr_branch)
-        exception_request_pr.add_to_labels('exceptions', 'pending')
+        exception_request_pr.add_to_labels(*self.cfg.labels_pending)
 
         return {
             'exists': True,
             'approved': False,
+            'requested': False,
+            'moved_to_requested': False,
             'url': exception_request_pr.html_url,
         }
 
-    def _check_exception_request_pr(self, freeze_window, create_if_missing=True):
-        exception_request_pr_branch = EXCEPTIONS_BRANCH_FORMAT.format(
+    def _check_exception_request_pr(self, freeze_window, create_if_missing=True, move_to_requested=False):
+        exception_request_pr_branch = self.cfg.exceptions_branch_format.format(
             repository=self.args.repository,
             pr_num=self.args.pull_request,
         )
         self.logger.info('Checking if exception request pull request %s exists', exception_request_pr_branch)
 
-        repo = self.gh.get_repo(self.args.controller_repository)
-        exception_request_prs = list(repo.get_pulls(
-            base=EXCEPTIONS_BASE_BRANCH,
+        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
+        exception_request_prs = list(ctrl_repo.get_pulls(
+            base=self.cfg.exceptions_base_branch,
             head=f"{self.args.controller_repository_owner}:{exception_request_pr_branch}",
             state='open',
         ))
@@ -524,11 +730,13 @@ class Run(object):
             return {
                 'exists': False,
                 'approved': False,
+                'requested': False,
+                'moved_to_requested': False,
                 'url': None,
             }
 
         # Get the target repo
-        target_repo = self.gh.get_repo(self.args.repository)
+        target_repo = self.gh.get_repo(self.args.repository, lazy=True)
 
         # Get the target pull request
         self.logger.info('Getting target pull request %s', self.args.pull_request)
@@ -551,14 +759,26 @@ class Run(object):
             return {
                 'exists': False,
                 'approved': False,
+                'requested': False,
+                'moved_to_requested': False,
                 'url': None,
             }
+
+        # Check if the exception request PR requires a title update
+        expect_title = format_template('exception-request-title.md', {
+            'target_repository': target_repo.full_name,
+            'target_pr_num': target_pr.number,
+            'target_pr_title': target_pr.title,
+        })
+        if exception_request_pr.title != expect_title:
+            self.logger.info('Exception request %s title does not match the expected title; updating', exception_request_pr_branch)
+            exception_request_pr.edit(title=expect_title)
 
         # Get the pull request reviews for the exception request
         self.logger.info('Getting reviews for exception request %s', exception_request_pr_branch)
         exception_request_pr_reviews = exception_request_pr.get_reviews()
 
-        # Go over the reviews and keep only the latest review of each reviewer
+        # Go over the reviews and keep only the latest review of each valid reviewer
         reviews = {}
         for review in exception_request_pr_reviews:
             reviewer_login = review.user.login
@@ -587,22 +807,27 @@ class Run(object):
 
         # Get the current labels
         self.logger.info('Checking if exception request %s has the expected labels', exception_request_pr_branch)
-        exception_request_pr_labels = [label.name for label in exception_request_pr.get_labels()]
+        exception_request_pr_labels = set([label.name for label in exception_request_pr.labels])
+
+        # Some label logic
+        non_controller_labels = [l for l in exception_request_pr_labels if l not in self.cfg.labels]
+        requested = self.cfg.is_exception_requested(exception_request_pr_labels)
+        moved_to_requested = move_to_requested and not requested
 
         # Compute the expected labels
-        expected_labels = ['exceptions']
+        expected_labels = set(non_controller_labels)
         if changes_requested:
-            expected_labels.append('rejected')
+            expected_labels.update(self.cfg.labels_rejected)
         elif approved:
-            expected_labels.append('approved')
-        elif len(reviews) > 0 or any(l in exception_request_pr_labels for l in ['approved', 'rejected', 'requested']):
-            expected_labels.append('requested')
+            expected_labels.update(self.cfg.labels_approved)
+        elif len(reviews) > 0 or requested or moved_to_requested:
+            expected_labels.update(self.cfg.labels_requested)
         else:
-            expected_labels.append('pending')
+            expected_labels.update(self.cfg.labels_pending)
 
         # Check if the exception request has the expected labels
         if exception_request_pr_labels != expected_labels:
-            self.logger.info('Exception request %s does not have the expected labels', exception_request_pr_branch)
+            self.logger.info('Exception request %s (#%d) does not have the expected labels', self.args.controller_repository, exception_request_pr.number)
             self.logger.info('Expected labels: %s', expected_labels)
             self.logger.info('Actual labels: %s', exception_request_pr_labels)
             self.logger.info('Updating exception request %s labels', exception_request_pr_branch)
@@ -614,23 +839,24 @@ class Run(object):
         return {
             'exists': True,
             'approved': exception_approved,
+            'requested': requested or moved_to_requested,
+            'moved_to_requested': moved_to_requested,
             'url': exception_request_pr.html_url,
         }
 
-
     def _push_status(self, allow, freeze_window, pr_status):
-        repo = self.gh.get_repo(self.args.repository)
+        target_repo = self.gh.get_repo(self.args.repository, lazy=True)
 
         # Get the commit, either from the input or from the pull request
         if self.args.commit:
             self.logger.info('Getting commit %s', self.args.commit)
-            commit = repo.get_commit(self.args.commit)
+            commit = target_repo.get_commit(self.args.commit)
         else:
             self.logger.info('Getting pull request %s', self.args.pull_request)
-            pr = repo.get_pull(self.args.pull_request)
+            pr = target_repo.get_pull(self.args.pull_request)
 
             self.logger.info('Getting commit %s (head of pull request)', pr.head.sha)
-            commit = repo.get_commit(pr.head.sha)
+            commit = target_repo.get_commit(pr.head.sha)
 
         # Prepare the status description
         if not allow and not pr_status.get('exists'):
@@ -645,14 +871,16 @@ class Run(object):
                 ' ({})'.format(freeze_window.reason) if freeze_window.reason else '')
         else:
             state = 'error'
-            description = 'The repository is frozen{}'.format(
-                ' ({})'.format(freeze_window.reason) if freeze_window.reason else '')
+            description = 'The repository is frozen{}{}'.format(
+                ' ({})'.format(freeze_window.reason) if freeze_window.reason else '',
+                ' - exception pending approval' if pr_status.get('requested') else '',
+            )
 
         # Push the status to the commit
         create_status_kwargs = {
             'state': state,
             'description': description,
-            'context': COMMIT_STATUS_CONTEXT,
+            'context': self.cfg.commit_status_context,
         }
         if pr_status.get('url'):
             create_status_kwargs['target_url'] = pr_status.get('url')
@@ -660,53 +888,38 @@ class Run(object):
         self.logger.info('Pushing status to commit %s: %s', commit.sha, create_status_kwargs)
         commit.create_status(**create_status_kwargs)
 
-    def update(self):
-        allow = True
-        pr_status = {}
+    def _get_or_create_active_windows_root_branch(self):
+        # Get the controller repository
+        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
 
-        try:
-            freeze_window = self._check_freeze()
-            if freeze_window:
-                pr_status = self._check_exception_request_pr(freeze_window)
-                if not pr_status['approved']:
-                    allow = False
-        except Exception as e:
-            self.logger.exception(e)
-
-            freeze_window = None
-            allow = False
-
-        self._push_status(allow, freeze_window, pr_status)
-
-    def _get_or_create_active_windows_root_branch(self, repo):
         # Get the active windows empty root branch
-        self.logger.info('Getting %s branch', ACTIVE_WINDOWS_ROOT_BRANCH)
+        self.logger.info('Getting %s branch', self.cfg.active_windows_base_branch)
         try:
-            return repo.get_branch(branch=ACTIVE_WINDOWS_ROOT_BRANCH)
+            return ctrl_repo.get_branch(branch=self.cfg.active_windows_base_branch)
         except github.GithubException as e:
             if e.status != 404:
                 raise
 
-        self.logger.info('Creating %s (root) branch', ACTIVE_WINDOWS_ROOT_BRANCH)
+        self.logger.info('Creating %s (root) branch', self.cfg.active_windows_base_branch)
 
         # Get the empty tree
         # Create new root empty commit
         self.logger.info('Creating new (empty) root commit')
         root_commit_sha = self.gh.create_empty_root_commit(
-            repo.full_name,
+            ctrl_repo.full_name,
             'Root commit for the branch to keep track of active freeze windows',
         )
 
         # Create new branch from root commit
-        self.logger.info('Creating new branch %s', ACTIVE_WINDOWS_ROOT_BRANCH)
-        active_windows_branch = repo.create_git_ref(
-            ref='refs/heads/{}'.format(ACTIVE_WINDOWS_ROOT_BRANCH),
+        self.logger.info('Creating new branch %s', self.cfg.active_windows_base_branch)
+        active_windows_branch = ctrl_repo.create_git_ref(
+            ref='refs/heads/{}'.format(self.cfg.active_windows_base_branch),
             sha=root_commit_sha,
         )
 
         # Get the active_windows branch
-        self.logger.info('Getting %s branch', ACTIVE_WINDOWS_ROOT_BRANCH)
-        return repo.get_branch(branch=ACTIVE_WINDOWS_ROOT_BRANCH)
+        self.logger.info('Getting %s branch', self.cfg.active_windows_base_branch)
+        return ctrl_repo.get_branch(branch=self.cfg.active_windows_base_branch)
 
     def _freeze_repository(self, repository, max_age_days=90):
         # Get all the pull requests from the repository that:
@@ -715,11 +928,11 @@ class Run(object):
         # - are against 'main'
 
         # Get the repository
-        repo = self.gh.get_repo(repository)
+        target_repo = self.gh.get_repo(repository, lazy=True)
 
         # Get and filter the pull requests
         self.logger.info('Getting pull requests for repository %s', repository)
-        pull_requests = list(repo.get_pulls(
+        pull_requests = list(target_repo.get_pulls(
             state='open',
             base='main',
             sort='created',
@@ -736,24 +949,27 @@ class Run(object):
 
             # Get the commit
             self.logger.info('Getting commit %s', pr.head.sha)
-            commit = repo.get_commit(pr.head.sha)
+            commit = target_repo.get_commit(pr.head.sha)
 
             # Freeze the pull request
             self.logger.info('Freezing pull request %s #%s', repository, pr.number)
             commit.create_status(
                 state='error',
                 description='The repository is frozen',
-                context=COMMIT_STATUS_CONTEXT,
+                context=self.cfg.commit_status_context,
             )
 
-    def _activate_freeze_windows(self, repo, freeze_windows, affected_repositories):
+    def _activate_freeze_windows(self, freeze_windows, affected_repositories):
         if not freeze_windows:
             return
 
         self.logger.info('Activating %s freeze windows', len(freeze_windows))
 
+        # Get the controller repository
+        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
+
         # Get the active windows empty root branch
-        active_windows_branch = self._get_or_create_active_windows_root_branch(repo)
+        active_windows_branch = self._get_or_create_active_windows_root_branch()
 
         # Already frozen repositories
         already_frozen_repositories = set()
@@ -770,9 +986,12 @@ class Run(object):
                 del affected_repositories[repository]
 
             # Create a new branch from the active windows branch
-            self.logger.info('Creating new branch %s', freeze_window.branch_name)
-            new_branch_ref = repo.create_git_ref(
-                ref='refs/heads/{}'.format(freeze_window.branch_name),
+            freeze_window_branch_name = self.cfg.windows_branch_format.format(
+                freeze_window_id=freeze_window.id,
+            )
+            self.logger.info('Creating new branch %s', freeze_window_branch_name)
+            new_branch_ref = ctrl_repo.create_git_ref(
+                ref='refs/heads/{}'.format(freeze_window_branch_name),
                 sha=active_windows_branch.commit.sha,
             )
 
@@ -791,24 +1010,24 @@ class Run(object):
         #  - Optionally, go over all open pull requests that are mergeable and unfreeze them
 
         # Get the controller repository
-        ctrl_repo = self.gh.get_repo(self.args.controller_repository)
+        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
 
         # Get the exception request branches
         all_branches = self.repo_branches(ctrl_repo)
 
         # Prepare this so we don't build that object twice
-        target_repo = self.gh.get_repo(repository)
+        target_repo = self.gh.get_repo(repository, lazy=True)
 
         # Go over the branches and find the ones that match the repository
         for branch in all_branches:
-            m = EXCEPTIONS_BRANCH_REGEX.match(branch.name)
+            m = self.cfg.exceptions_branch_regex.match(branch.name)
             if not m or m.group('repository') != repository:
                 continue
 
             # Get the exception request pull request
             self.logger.info('Getting exception request pull request %s', branch.name)
             exception_request_prs = list(ctrl_repo.get_pulls(
-                base=EXCEPTIONS_BASE_BRANCH,
+                base=self.cfg.exceptions_base_branch,
                 head=f"{self.args.controller_repository_owner}:{branch.name}",
                 state='open',
             ))
@@ -851,7 +1070,7 @@ class Run(object):
             commit.create_status(
                 state='success',
                 description='The repository is not frozen',
-                context=COMMIT_STATUS_CONTEXT,
+                context=self.cfg.commit_status_context,
             )
 
             # Post a comment on the pull request to indicate that it was unfrozen
@@ -891,14 +1110,17 @@ class Run(object):
             commit.create_status(
                 state='success',
                 description='The repository is not frozen',
-                context=COMMIT_STATUS_CONTEXT,
+                context=self.cfg.commit_status_context,
             )
 
-    def _cleanup_freeze_windows(self, repo, freeze_windows, affected_repositories):
+    def _cleanup_freeze_windows(self, freeze_windows, affected_repositories):
         if not freeze_windows:
             return
 
         self.logger.info('Cleaning up %s freeze windows', len(freeze_windows))
+
+        # Get the controller repository
+        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
 
         # Already unfrozen repositories
         already_unfrozen_repositories = set()
@@ -915,8 +1137,11 @@ class Run(object):
                 del affected_repositories[repository]
 
             # Delete the branch
-            self.logger.info('Deleting branch %s', freeze_window.branch_name)
-            repo.get_git_ref(ref=f"heads/{freeze_window.branch_name}").delete()
+            freeze_window_branch_name = self.cfg.windows_branch_format.format(
+                freeze_window_id=freeze_window.id,
+            )
+            self.logger.info('Deleting branch %s', freeze_window_branch_name)
+            ctrl_repo.get_git_ref(ref=f"heads/{freeze_window_branch_name}").delete()
 
     def _get_affected_repositories(self, freeze_windows):
         all_affected_repositories = set()
@@ -986,6 +1211,31 @@ class Run(object):
 
         return new_frozen_repositories, new_unfrozen_repositories
 
+    def update(self, move_to_requested=False):
+        allow = True
+        pr_status = {}
+
+        try:
+            freeze_window = self._check_freeze()
+            if freeze_window:
+                pr_status = self._check_exception_request_pr(
+                    freeze_window,
+                    create_if_missing=not move_to_requested,
+                    move_to_requested=move_to_requested,
+                )
+                if not pr_status['approved']:
+                    allow = False
+
+                if move_to_requested and not pr_status['moved_to_requested']:
+                    self.logger.warning('Did not move exception request to requested')
+        except Exception as e:
+            self.logger.exception(e)
+
+            freeze_window = None
+            allow = False
+
+        self._push_status(allow, freeze_window, pr_status)
+
     def cron_update(self):
         now = datetime.datetime.now(datetime.timezone.utc)
 
@@ -1034,21 +1284,22 @@ class Run(object):
             self.logger.info('  %s', freeze_window)
 
         # Get the controller repository
-        repo = self.gh.get_repo(self.args.controller_repository)
+        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
 
         # Get all branches that match the active freeze windows
-        all_branches = self.repo_branches(repo)
+        all_branches = self.repo_branches(ctrl_repo)
 
         # Check if we entered or exited a freeze window
         freeze_windows_to_activate = {k: v for k, v in active_freeze_windows.items()}
         freeze_windows_to_cleanup = {}
         already_active_freeze_windows = {}
         for branch in all_branches:
-            if not branch.name.startswith(ACTIVE_WINDOW_BRANCH_PREFIX):
+            m = self.cfg.windows_branch_regex.match(branch.name)
+            if not m:
                 continue
 
             # Get the freeze window ID
-            freeze_window_id = branch.name[len(ACTIVE_WINDOW_BRANCH_PREFIX):]
+            freeze_window_id = m.group('freeze_window_id')
 
             # If the freeze window is active and should be active, we can
             # remove it from the active freeze windows
@@ -1074,7 +1325,7 @@ class Run(object):
             # perform any cleanup.
             self.logger.warning("Freeze window %s is active and should not be active, but does not exist anymore; removing branch but won't be able to cleanup", freeze_window_id)
             # This is not possible to call .delete() on the branch object directly
-            repo.get_git_ref(ref=f"heads/{branch.name}").delete()
+            ctrl_repo.get_git_ref(ref=f"heads/{branch.name}").delete()
 
         # If there's no freeze window to activate or cleanup, we are done
         if not freeze_windows_to_activate and not freeze_windows_to_cleanup:
@@ -1083,14 +1334,14 @@ class Run(object):
 
         # Get affected repositories
         affected_repositories = self._get_affected_repositories(
-                list(freeze_windows_to_activate.values()) + list(freeze_windows_to_cleanup.values()))
+            list(freeze_windows_to_activate.values()) + list(freeze_windows_to_cleanup.values()))
 
         self.logger.debug('Affected repositories: %s', affected_repositories)
 
         # Split the affected repositories into those that need to be frozen
         # and those that need to be unfrozen
         new_frozen_repositories, new_unfrozen_repositories = self._split_affected_repositories(
-                affected_repositories, already_active_freeze_windows, freeze_windows_to_activate, freeze_windows_to_cleanup)
+            affected_repositories, already_active_freeze_windows, freeze_windows_to_activate, freeze_windows_to_cleanup)
 
         self.logger.debug('New frozen repositories: %s', new_frozen_repositories)
         self.logger.debug('New unfrozen repositories: %s', new_unfrozen_repositories)
@@ -1100,10 +1351,10 @@ class Run(object):
 
         #  If there are any freeze windows left to activate, activate them
         if freeze_windows_to_activate:
-            self._activate_freeze_windows(repo, freeze_windows_to_activate.values(), new_frozen_repositories)
+            self._activate_freeze_windows(freeze_windows_to_activate.values(), new_frozen_repositories)
 
         if freeze_windows_to_cleanup:
-            self._cleanup_freeze_windows(repo, freeze_windows_to_cleanup.values(), new_unfrozen_repositories)
+            self._cleanup_freeze_windows(freeze_windows_to_cleanup.values(), new_unfrozen_repositories)
 
 
 def main():
@@ -1170,6 +1421,34 @@ def main():
         help='Run the cron job.',
     )
 
+    # Create subcommand 'request-exception'
+    request_parser = subparsers.add_parser(
+        'request',
+        help='Move a pending exception request into requested mode.',
+    )
+    request_parser.add_argument(
+        '--repository',
+        required=True,
+        help='The repository to check.',
+    )
+    request_parser.add_argument(
+        '--pull-request',
+        type=int,
+        required=True,
+        help='The pull request to check.',
+    )
+    request_parser.add_argument(
+        '--commit',
+        required=False,  # If not provided, we'll get it from the pull request
+        help='The commit to check.',
+    )
+
+    # Create subcommand 'check-config'
+    subparsers.add_parser(
+        'check-config',
+        help='Check the configuration and exit.',
+    )
+
     args = parser.parse_args()
 
     def parse_repository(repository):
@@ -1180,15 +1459,25 @@ def main():
     if hasattr(args, 'repository'):
         args.repository_owner, args.repository_name = parse_repository(args.repository)
 
+    # Check the configuration
+    cfg = ConfigData(default_org=args.controller_repository_owner)
+    cfg.check()
+
+    # If the operation is 'check-config', we are done
+    if args.operation == 'check-config':
+        sys.exit(0)
+
     #  gh, revoke = github_auth(args.app_id, args.private_key)
     gh = GithubApp(args.app_id, args.private_key)
     try:
-        run = Run(gh, args)
+        run = Run(gh, args, cfg=cfg)
 
         if args.operation == 'update':
             run.update()
         elif args.operation == 'cron':
             run.cron_update()
+        elif args.operation == 'request':
+            run.update(move_to_requested=True)
         else:
             # Should never happen
             raise RuntimeError("Invalid operation: {}".format(operation))
