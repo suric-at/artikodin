@@ -1,0 +1,47 @@
+name: Authorizer
+
+
+on:
+  schedule:
+    - cron: "13 */4 * * *"
+
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+
+jobs:
+  run_cron:
+    name: Run controller in cron mode
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout commit
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r controller/requirements.txt
+
+      - name: Run cron script
+        env:
+          REPOSITORY: ${{ github.repository }}
+          APP_ID: ${{ secrets.APP_ID }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+        run: |
+          ./controller/run.py \
+            --app-id "$APP_ID" \
+            --private-key "$PRIVATE_KEY" \
+            --controller-repository "${{ env.REPOSITORY }}" \
+            cron
+
