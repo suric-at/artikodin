@@ -11,6 +11,11 @@ inputs:
     description: "GitHub app private key"
     required: true
 
+  set-pending:
+    description: "Whether to set or not the status as pending"
+    type: boolean
+    default: true
+
 
 runs:
   using: "composite"
@@ -36,6 +41,7 @@ runs:
         echo "ACTION_REPOSITORY_NAME=$ACTION_REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
 
     - name: Create application token for current repository
+      if: ${{ inputs.set-pending }}
       uses: actions/create-github-app-token@v1
       id: current-app-token
       with:
@@ -45,8 +51,10 @@ runs:
         repositories: ${{ env.REPOSITORY_NAME }}
 
     - name: Set status as pending
+      if: ${{ inputs.set-pending }}
       uses: ouzi-dev/commit-status-updater@v2
       env:
+        # Hardcoded for simplicity
         STATUS_NAME: freeze
       with:
         token: ${{ steps.current-app-token.outputs.token }}
