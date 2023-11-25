@@ -26,43 +26,36 @@ jobs:
        startsWith(toJson(github.event.comment.body), '"/exception\n') ||
        startsWith(toJson(github.event.comment.body), '"/exception\r\n'))
 
-    env:
-      PR_NUM: ${{ github.event.issue.number }}
-
     steps:
-      - env:
-          CONTEXT: ${{ toJson(github) }}
-        run:
-          echo "$CONTEXT" | jq
+      - name: Checkout commit
+        if: ${{ env.MATCHES == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: main
 
-      # - name: Checkout commit
-        # uses: actions/checkout@v4
-        # with:
-          # ref: main
+      - name: Setup python
+        if: ${{ env.MATCHES == 'true' }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3'
+          cache: 'pip'
 
-      # - name: Setup python
-        # uses: actions/setup-python@v4
-        # with:
-          # python-version: '3'
-          # cache: 'pip'
+      - name: Install dependencies
+        if: ${{ env.MATCHES == 'true' }}
+        run: |
+          pip install -r controller/requirements.txt
 
-      # - name: Install dependencies
-        # run: |
-          # pip install -r controller/requirements.txt
-
-      # - name: Run update script
-        # env:
-          # REPOSITORY: ${{ github.repository }}
-          # TARGET_REPOSITORY: ${{ github.event.client_payload.repository || inputs.repository }}
-          # TARGET_PULL_REQUEST: ${{ github.event.client_payload.pull_request || inputs.pull_request }}
-          # APP_ID: ${{ secrets.APP_ID }}
-          # PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-        # run: |
-          # ./controller/run.py \
-            # --app-id "$APP_ID" \
-            # --private-key "$PRIVATE_KEY" \
-            # --controller-repository "${{ env.REPOSITORY }}" \
-            # request \
-            # --repository "${{ env.TARGET_REPOSITORY }}" \
-            # --pull-request "${{ env.TARGET_PULL_REQUEST }}" \
+      - name: Run update script
+        if: ${{ env.MATCHES == 'true' }}
+        env:
+          REPOSITORY: ${{ github.repository }}
+          APP_ID: ${{ secrets.APP_ID }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+        run: |
+          ./controller/run.py \
+            --app-id "$APP_ID" \
+            --private-key "$PRIVATE_KEY" \
+            --controller-repository "${{ env.REPOSITORY }}" \
+            request \
+            --controller-pull-request "${{ github.event.issue.number }}"
 

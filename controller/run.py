@@ -1435,14 +1435,21 @@ def main():
         help='Update the status of the pull request.',
     )
     update_parser.add_argument(
+        '--controller-pull-request',
+        type=int,
+        help='The pull request number in the controller repository.',
+    )
+    update_parser.add_argument(
+        '--head-ref',
+        help='The head ref of the exception request pull request.',
+    )
+    update_parser.add_argument(
         '--repository',
-        required=True,
         help='The repository to check.',
     )
     update_parser.add_argument(
         '--pull-request',
         type=int,
-        required=True,
         help='The pull request to check.',
     )
     update_parser.add_argument(
@@ -1463,19 +1470,25 @@ def main():
         help='Move a pending exception request into requested mode.',
     )
     request_parser.add_argument(
+        '--controller-pull-request',
+        type=int,
+        help='The pull request number in the controller repository.',
+    )
+    request_parser.add_argument(
+        '--head-ref',
+        help='The head ref of the exception request pull request.',
+    )
+    request_parser.add_argument(
         '--repository',
-        required=True,
         help='The repository to check.',
     )
     request_parser.add_argument(
         '--pull-request',
         type=int,
-        required=True,
         help='The pull request to check.',
     )
     request_parser.add_argument(
         '--commit',
-        required=False,  # If not provided, we'll get it from the pull request
         help='The commit to check.',
     )
 
@@ -1492,8 +1505,6 @@ def main():
         return owner, name
 
     args.controller_repository_owner, args.controller_repository_name = parse_repository(args.controller_repository)
-    if hasattr(args, 'repository'):
-        args.repository_owner, args.repository_name = parse_repository(args.repository)
 
     # Check the configuration
     cfg = ConfigData(default_org=args.controller_repository_owner)
@@ -1501,11 +1512,73 @@ def main():
 
     # If the operation is 'check-config', we are done
     if args.operation == 'check-config':
-        sys.exit(0)
+        return
+    elif args.operation == 'request' or args.operation == 'update':
+        # For a request, we allow to pass any of those combinations:
+        #  - --controller-pull-request, which gives the pull request number in the controller repository
+        #  - --head-ref, which gives the branch name in the controller repository
+        #  - --repository and --pull-request, which gives the repository and pull request number
+        #
+        # We need to check that any of those combinations is provided, that no
+        # more than one of those combinations is provided, and that
+        # the provided values are valid.
 
-    #  gh, revoke = github_auth(args.app_id, args.private_key)
+        invalid_combinations = (
+            ('controller_pull_request', 'head_ref'),
+            ('controller_pull_request', 'repository'),
+            ('controller_pull_request', 'pull_request'),
+            ('controller_pull_request', 'commit'),
+            ('head_ref', 'repository'),
+            ('head_ref', 'pull_request'),
+            ('head_ref', 'commit'),
+        )
+        for c in invalid_combinations:
+            if getattr(args, c[0]) and getattr(args, c[1]):
+                raise argparse.ArgumentError(None, "Cannot specify both --{} and --{}".format(*c))
+
+        required_combinations = (
+            ('repository', 'pull_request'),
+        )
+        for c in required_combinations:
+            if getattr(args, c[0]) != getattr(args, c[1]):
+                raise argparse.ArgumentError(None, "Both --{} and --{} are required if one is specified".format(*c))
+
+        if args.controller_pull_request:
+            # Handle later
+            pass
+        elif args.head_ref:
+            m = cfg.exceptions_branch_regex.match(args.head_ref)
+            if not m:
+                raise argparse.ArgumentError(None, "Invalid head ref '{}', must be of the form '{}'".format(
+                    args.head_ref, cfg.exceptions_branch_format))
+
+            args.repository = m.group('repository')
+            args.pull_request = int(m.group('pr_num'))
+        elif not args.repository or not args.pull_request:
+            raise argparse.ArgumentError(None, "Either --head-ref or --repository and --pull-request are required")
+
     gh = GithubApp(args.app_id, args.private_key)
     try:
+        if args.controller_pull_request:
+            # Get the controller repository
+            ctrl_repo = gh.get_repo(args.controller_repository, lazy=True)
+
+            # Get the pull request
+            ctrl_pr = ctrl_repo.get_pull(args.controller_pull_request)
+
+            # Get the repository and pull request number
+            m = cfg.exceptions_branch_regex.match(ctrl_pr.head.ref)
+            if not m:
+                raise argparse.ArgumentError(None, "Pull request {} does not seem to be an exception request".format(
+                    args.controller_pull_request))
+
+            args.repository = m.group('repository')
+            args.pull_request = int(m.group('pr_num'))
+
+        if hasattr(args, 'repository'):
+            args.repository_owner, args.repository_name = parse_repository(args.repository)
+
+        # Now that we have the arguments, we can create the run object
         run = Run(gh, args, cfg=cfg)
 
         if args.operation == 'update':
