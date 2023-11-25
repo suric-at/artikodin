@@ -28,25 +28,21 @@ jobs:
 
     steps:
       - name: Checkout commit
-        if: ${{ env.MATCHES == 'true' }}
         uses: actions/checkout@v4
         with:
           ref: main
 
       - name: Setup python
-        if: ${{ env.MATCHES == 'true' }}
         uses: actions/setup-python@v4
         with:
           python-version: '3'
           cache: 'pip'
 
       - name: Install dependencies
-        if: ${{ env.MATCHES == 'true' }}
         run: |
           pip install -r controller/requirements.txt
 
       - name: Run update script
-        if: ${{ env.MATCHES == 'true' }}
         env:
           REPOSITORY: ${{ github.repository }}
           APP_ID: ${{ secrets.APP_ID }}
