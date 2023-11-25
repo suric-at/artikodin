@@ -82,5 +82,5 @@ runs:
             "repository": "${{ env.REPOSITORY }}",
             "pull_request": "${{ github.event.pull_request.number }}",
             "git_sha": "${{ github.event.pull_request.head.sha }}",
-            "best_effort": "${{ inputs.closing-pr }}"
+            "best_effort": ${{ inputs.closing-pr == 'true' }}
           }
