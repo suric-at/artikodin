@@ -718,7 +718,7 @@ class Run(object):
             'url': exception_request_pr.html_url,
         }
 
-    def _check_exception_request_pr(self, freeze_window, create_if_missing=True, move_to_requested=False):
+    def _check_exception_request_pr(self, freeze_window, create_if_missing=True, move_to_requested=False, best_effort=False):
         exception_request_pr_branch = self.cfg.exceptions_branch_format.format(
             repository=self.args.repository,
             pr_num=self.args.pull_request,
@@ -752,6 +752,18 @@ class Run(object):
 
         if len(exception_request_prs) == 0:
             if target_pr.state != 'open':
+                if best_effort:
+                    self.logger.info('Target pull request %s #%s is no longer open; ignoring',
+                                     self.args.repository, self.args.pull_request)
+                    return {
+                        'skip_status_update': True,
+                        'exists': False,
+                        'approved': False,
+                        'requested': False,
+                        'moved_to_requested': False,
+                        'url': None,
+                    }
+
                 raise RuntimeError("Target pull request %s #%s is no longer open", self.args.repository, self.args.pull_request)
 
             return self._create_exception_request_pr(freeze_window, target_pr, exception_request_pr_branch)
@@ -1246,7 +1258,7 @@ class Run(object):
 
         return new_frozen_repositories, new_unfrozen_repositories
 
-    def update(self, move_to_requested=False):
+    def update(self, move_to_requested=False, best_effort=False):
         allow = True
         pr_status = {}
 
@@ -1257,6 +1269,7 @@ class Run(object):
                     freeze_window,
                     create_if_missing=not move_to_requested,
                     move_to_requested=move_to_requested,
+                    best_effort=best_effort,
                 )
                 if not pr_status['approved']:
                     allow = False
@@ -1269,8 +1282,10 @@ class Run(object):
             freeze_window = None
             allow = False
 
-        if not pr_status.get('skip_status_update'):
-            self._push_status(allow, freeze_window, pr_status)
+            raise
+        finally:
+            if not pr_status.get('skip_status_update'):
+                self._push_status(allow, freeze_window, pr_status)
 
     def cron_update(self):
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -1435,6 +1450,11 @@ def main():
         help='Update the status of the pull request.',
     )
     update_parser.add_argument(
+        '--best-effort',
+        action='store_true',
+        help='Do not fail if the target pull request cannot be found.',
+    )
+    update_parser.add_argument(
         '--controller-pull-request',
         type=int,
         help='The pull request number in the controller repository.',
@@ -1582,7 +1602,7 @@ def main():
         run = Run(gh, args, cfg=cfg)
 
         if args.operation == 'update':
-            run.update()
+            run.update(best_effort=args.best_effort)
         elif args.operation == 'cron':
             run.cron_update()
         elif args.operation == 'request':

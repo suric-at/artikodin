@@ -11,8 +11,8 @@ inputs:
     description: "GitHub app private key"
     required: true
 
-  set-pending:
-    description: "Whether to set or not the status as pending"
+  closing-pr:
+    description: "Set to true when pull requests are getting closed"
     type: boolean
     default: true
 
@@ -41,7 +41,7 @@ runs:
         echo "ACTION_REPOSITORY_NAME=$ACTION_REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
 
     - name: Create application token for current repository
-      if: ${{ inputs.set-pending == 'true' }}
+      if: ${{ inputs.closing-pr != 'true' }}
       uses: actions/create-github-app-token@v1
       id: current-app-token
       with:
@@ -51,7 +51,7 @@ runs:
         repositories: ${{ env.REPOSITORY_NAME }}
 
     - name: Set status as pending
-      if: ${{ inputs.set-pending == 'true' }}
+      if: ${{ inputs.closing-pr != 'true' }}
       uses: ouzi-dev/commit-status-updater@v2
       env:
         # Hardcoded for simplicity
@@ -81,5 +81,6 @@ runs:
           {
             "repository": "${{ env.REPOSITORY }}",
             "pull_request": "${{ github.event.pull_request.number }}",
-            "git_sha": "${{ github.event.pull_request.head.sha }}"
+            "git_sha": "${{ github.event.pull_request.head.sha }}",
+            "best_effort": "${{ inputs.closing-pr }}"
           }

@@ -6,7 +6,6 @@ on:
   # Runs on a repository dispatch
   repository_dispatch:
     types:
-      - authorizer
       - request
 
   # Runs on a workflow dispatch
@@ -20,6 +19,10 @@ on:
         required: true
       git_sha:
         description: 'The git sha to report the status for'
+        required: true
+      best_effort:
+        description: 'Whether to call the controller update in best effort mode'
+        type: boolean
         required: true
 
 
@@ -56,6 +59,7 @@ jobs:
           TARGET_REPOSITORY: ${{ github.event.client_payload.repository || inputs.repository }}
           TARGET_PULL_REQUEST: ${{ github.event.client_payload.pull_request || inputs.pull_request }}
           TARGET_GIT_SHA: ${{ github.event.client_payload.git_sha || inputs.git_sha }}
+          BEST_EFFORT: ${{ (github.event.client_payload.best_effort || inputs.best_effort) && '--best-effort' }}
           APP_ID: ${{ secrets.APP_ID }}
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
         run: |
@@ -63,7 +67,7 @@ jobs:
             --app-id "$APP_ID" \
             --private-key "$PRIVATE_KEY" \
             --controller-repository "${{ env.REPOSITORY }}" \
-            update \
+            update ${{ env.BEST_EFFORT }} \
             --repository "${{ env.TARGET_REPOSITORY }}" \
             --pull-request "${{ env.TARGET_PULL_REQUEST }}" \
             --commit "${{ env.TARGET_GIT_SHA }}"
