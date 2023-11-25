@@ -754,7 +754,9 @@ class Run(object):
         # Check if the target pull request is still open
         if target_pr.state != 'open':
             self.logger.info('Target pull request %s #%s is no longer open; closing exception request %s', self.args.repository, self.args.pull_request, exception_request_pr_branch)
-            exception_request_pr.add_comment('The target pull request is no longer open; closing this exception request')
+            exception_request_pr.create_issue_comment(
+                'The target pull request is no longer open; '
+                'closing this exception request')
             exception_request_pr.edit(state='closed')
             return {
                 'exists': False,
