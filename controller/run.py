@@ -519,7 +519,7 @@ class Run(object):
             if target_pr.state != 'open':
                 raise RuntimeError("Target pull request %s #%s is no longer open", self.args.repository, self.args.pull_request)
 
-            return self._create_exception_request_pr(freeze_window)
+            return self._create_exception_request_pr(freeze_window, target_pr)
 
         exception_request_pr = exception_request_prs[0]
         self.logger.info('Exception request pull request %s exists: %s', exception_request_pr_branch, exception_request_pr)
@@ -646,18 +646,18 @@ class Run(object):
         pr_status = {}
 
         try:
-            schedule = self._check_freeze()
-            if schedule:
-                pr_status = self._check_exception_request_pr(schedule)
+            freeze_window = self._check_freeze()
+            if freeze_window:
+                pr_status = self._check_exception_request_pr(freeze_window)
                 if not pr_status['approved']:
                     allow = False
         except Exception as e:
             self.logger.exception(e)
 
-            schedule = None
+            freeze_window = None
             allow = False
 
-        self._push_status(allow, schedule, pr_status)
+        self._push_status(allow, freeze_window, pr_status)
 
     def _get_or_create_active_windows_root_branch(self, repo):
         # Get the active windows empty root branch
