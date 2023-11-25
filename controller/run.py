@@ -632,7 +632,7 @@ class Run(object):
 
         # Get the exceptions branch
         self.logger.info('Getting exceptions branch %s', self.cfg.exceptions_base_branch)
-        exceptions_branch = repo.get_branch(branch=self.cfg.exceptions_base_branch)
+        exceptions_branch = ctrl_repo.get_branch(branch=self.cfg.exceptions_base_branch)
 
         # Check if the exceptions branch exists
         try:
