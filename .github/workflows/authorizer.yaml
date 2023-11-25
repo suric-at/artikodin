@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   run_update:
-    name: Check input
+    name: Run controller in update mode
 
     runs-on: ubuntu-latest
 

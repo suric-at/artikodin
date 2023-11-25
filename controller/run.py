@@ -416,7 +416,7 @@ class Run(object):
             'freeze_to': freeze_window.to_date.isoformat(),
             'freeze_details': "{}until {}".format(
                 "for {} ".format(freeze_window.reason) if freeze_window.reason else "",
-                freeze_window.to.isoformat(),
+                freeze_window.to_date.isoformat(),
             ),
         }
         exception_request_body = format_template('exception-request-body.md', template_args)
