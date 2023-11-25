@@ -367,6 +367,14 @@ class ConfigData(object):
     def labels_rejected(self):
         return self.labels_base | set(self.controller['labels']['rejected'])
 
+    @property
+    def labels_target_merged(self):
+        return set(self.controller['labels']['target_merged'])
+
+    @property
+    def labels_target_closed(self):
+        return set(self.controller['labels']['target_closed'])
+
     def is_exception_requested(self, labels):
         labels = set(labels)
         return any(
@@ -468,6 +476,12 @@ class ConfigData(object):
                     '_validate': validate_nonempty_list,
                 },
                 'pending': {
+                    '_validate': validate_nonempty_list,
+                },
+                'target_merged': {
+                    '_validate': validate_nonempty_list,
+                },
+                'target_closed': {
                     '_validate': validate_nonempty_list,
                 },
             },
@@ -764,21 +778,35 @@ class Run(object):
                         'url': None,
                     }
 
-                raise RuntimeError("Target pull request %s #%s is no longer open", self.args.repository, self.args.pull_request)
+                raise RuntimeError("Target pull request %s #%s is no longer open",
+                                   self.args.repository, self.args.pull_request)
 
             return self._create_exception_request_pr(freeze_window, target_pr, exception_request_pr_branch)
 
         exception_request_pr = exception_request_prs[0]
-        self.logger.info('Exception request pull request %s exists: %s', exception_request_pr_branch, exception_request_pr)
+        self.logger.info('Exception request pull request %s exists: %s',
+                         exception_request_pr_branch, exception_request_pr)
 
         # Check if the target pull request is still open
         if target_pr.state != 'open':
             # Close the exception request PR
-            self.logger.info('Target pull request %s #%s is no longer open; closing exception request %s', self.args.repository, self.args.pull_request, exception_request_pr_branch)
+            self.logger.info('Target pull request %s #%s is no longer open; '
+                             'closing exception request %s',
+                             self.args.repository, self.args.pull_request,
+                             exception_request_pr_branch)
             exception_request_pr.create_issue_comment(
                 'The target pull request is no longer open; '
                 'closing this exception request')
             exception_request_pr.edit(state='closed')
+
+            if target_pr.merged:
+                self.logger.info('Adding target merged labels to exception request %s',
+                                 self.cfg.labels_target_merged, exception_request_pr_branch)
+                exception_request_pr.add_to_labels(*self.cfg.labels_target_merged)
+            else:
+                self.logger.info('Adding target closed labels to exception request %s',
+                                 self.cfg.labels_target_closed, exception_request_pr_branch)
+                exception_request_pr.add_to_labels(*self.cfg.labels_target_closed)
 
             # Delete the branch too
             try:
@@ -1106,6 +1134,14 @@ class Run(object):
                 self.logger.info(
                         'Target pull request %s #%s is no longer open; skipping',
                         repository, m.group('pr_num'))
+
+                if target_pr.merged:
+                    self.logger.info('Adding target merged labels to exception request %s', self.cfg.labels_target_merged, exception_request_pr_branch)
+                    exception_request_pr.add_to_labels(*self.cfg.labels_target_merged)
+                else:
+                    self.logger.info('Adding target closed labels to exception request %s', self.cfg.labels_target_closed, exception_request_pr_branch)
+                    exception_request_pr.add_to_labels(*self.cfg.labels_target_closed)
+
                 continue
 
             # Get the git commit for the pull request
