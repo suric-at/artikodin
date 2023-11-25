@@ -397,7 +397,7 @@ class Run(object):
         self.logger.info('Found freeze window that applies to repository %s: %s', self.args.repository, freeze_window)
         return freeze_window
 
-    def _create_exception_request_pr(self, freeze_window, target_pr):
+    def _create_exception_request_pr(self, freeze_window, target_pr, exception_request_pr_branch):
         self.logger.info('Exception request pull request %s does not exist', exception_request_pr_branch)
 
         # Prepare the exception request body
@@ -519,7 +519,7 @@ class Run(object):
             if target_pr.state != 'open':
                 raise RuntimeError("Target pull request %s #%s is no longer open", self.args.repository, self.args.pull_request)
 
-            return self._create_exception_request_pr(freeze_window, target_pr)
+            return self._create_exception_request_pr(freeze_window, target_pr, exception_request_pr_branch)
 
         exception_request_pr = exception_request_prs[0]
         self.logger.info('Exception request pull request %s exists: %s', exception_request_pr_branch, exception_request_pr)
@@ -794,7 +794,7 @@ class Run(object):
                 state='open',
             ))
             if len(exception_request_prs) > 1:
-                raise RuntimeError("Too many exception request PRs found for %s", exception_request_pr_branch)
+                raise RuntimeError("Too many exception request PRs found for %s", branch.name)
 
             if len(exception_request_prs) != 0:
                 exception_request_pr = exception_request_prs[0]
