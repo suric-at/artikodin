@@ -1055,7 +1055,7 @@ class Run(object):
                 del affected_repositories[repository]
 
             # Create a new branch from the active windows branch
-            freeze_window_branch_name = self.cfg.windows_branch_format.format(
+            freeze_window_branch_name = self.cfg.active_windows_branch_format.format(
                 freeze_window_id=freeze_window.id,
             )
             self.logger.info('Creating new branch %s', freeze_window_branch_name)
@@ -1222,7 +1222,7 @@ class Run(object):
                 del affected_repositories[repository]
 
             # Delete the branch
-            freeze_window_branch_name = self.cfg.windows_branch_format.format(
+            freeze_window_branch_name = self.cfg.active_windows_branch_format.format(
                 freeze_window_id=freeze_window.id,
             )
             self.logger.info('Deleting branch %s', freeze_window_branch_name)
@@ -1383,7 +1383,7 @@ class Run(object):
         freeze_windows_to_cleanup = {}
         already_active_freeze_windows = {}
         for branch in all_branches:
-            m = self.cfg.windows_branch_regex.match(branch.name)
+            m = self.cfg.active_windows_branch_regex.match(branch.name)
             if not m:
                 continue
 
