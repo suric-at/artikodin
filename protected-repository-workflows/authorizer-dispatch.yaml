@@ -1,0 +1,38 @@
+name: Synchronize Authorization
+
+
+on:
+  # Runs on a pull request for the main branch
+  pull_request:
+    types:
+      # Default events
+      - opened
+      - synchronize
+      - reopened
+      # But we also want to make sure a potential
+      # exception request pull request is getting
+      # closed if any was open
+      - closed
+    branch:
+      - main
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: false
+
+
+jobs:
+  synchronize-authorization:
+    name: Synchronize authorization
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Synchronize authorization
+        uses: suric-at/frozengoods/request@main
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          closing-pr: ${{ github.event.action == 'closed' }}
+

@@ -125,6 +125,157 @@ def cleanup_invalid_repositories(repositories, default_org=None):
     return repos
 
 
+class Repository(object):
+    def __init__(self, yaml_data, default_org=None):
+        self.logger = logging.getLogger('repository')
+
+        if isinstance(yaml_data, str):
+            yaml_data = {'handle': yaml_data}
+
+        if not isinstance(yaml_data, dict):
+            raise RuntimeError("Repository definition '{}' is not a string or a dictionary".format(yaml_data))
+
+        if 'handle' not in yaml_data:
+            raise RuntimeError("Repository definition '{}' does not have a 'handle'".format(yaml_data))
+
+        handle = yaml_data['handle']
+        if not isinstance(handle, str):
+            raise RuntimeError("Repository handle '{}' is not a string".format(handle))
+
+        handle = handle.lower()
+        if not '/' in handle:
+            if not default_org:
+                raise RuntimeError("Repository handle '{}' does not have an organization and no default organization is set".format(handle))
+
+            handle = '{}/{}'.format(default_org, handle)
+
+        org, name = handle.split('/', 1)
+        if has_pattern_matching(org):
+            raise RuntimeError("Repository handle '{}' has a pattern in the organization".format(handle))
+
+        if 'branches' not in yaml_data or yaml_data['branches'] is None:
+            branches = None
+        else:
+            branches = force_list(yaml_data['branches'])
+            if len(branches) == 0:
+                raise RuntimeError("Repository definition '{}' has no branches; if this is intended, unset the branches parameter or set it to null".format(yaml_data))
+
+            for branch in branches:
+                if not isinstance(branch, str):
+                    raise RuntimeError("Branch '{}' is not a string".format(branch))
+
+                if has_pattern_matching(branch):
+                    raise RuntimeError("Branch '{}' is a pattern".format(branch))
+
+        self._handle = handle
+        self._org = org
+        self._name = name
+        self._branches = set([b.lower() for b in branches]) if branches else None
+
+    def __repr__(self):
+        return "Repository(handle={}, branches={})".format(
+            self._handle,
+            '*' if self._branches is None else self._branches,
+        )
+
+    @property
+    def handle(self):
+        return self._handle
+
+    @property
+    def org(self):
+        return self._org
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def branches(self):
+        return self._branches
+
+    def extend(self, other):
+        if not isinstance(other, Repository):
+            raise RuntimeError("Cannot extend repository with {}".format(other))
+
+        if self._handle != other._handle:
+            raise RuntimeError("Cannot extend repository with {}".format(other))
+
+        if self._branches is None:
+            # Nothing to do, we already match all branches
+            return
+
+        if other._branches is None:
+            self._branches = None
+            return
+
+        self._branches.update(other._branches)
+
+    def matches(self, repository):
+        return fnmatch.fnmatch(repository, self._handle)
+
+    def applies_to(self, repository, branch):
+        return self.matches(repository) and (
+            self._branches is None or branch.lower() in self._branches)
+
+
+class RepositoryList(object):
+    def __init__(self, yaml_data=None, default_org=None):
+        self.logger = logging.getLogger('repository-list')
+
+        self._default_org = default_org
+        self._repositories = {}
+
+        if yaml_data is None:
+            return
+
+        if isinstance(yaml_data, str):
+            yaml_data = [yaml_data]
+
+        if not isinstance(yaml_data, list) and not isinstance(yaml_data, RepositoryList):
+            raise RuntimeError("Repository list definition '{}' is not a list".format(yaml_data))
+
+        self.extend(yaml_data)
+
+    # Override 'not' operator so it returns True if the list
+    # of repositories is empty
+    def __bool__(self):
+        return bool(self._repositories)
+
+    def __repr__(self):
+        return "RepositoryList({})".format(
+            list(self._repositories.values()),
+        )
+
+    @property
+    def repositories(self):
+        return list(self._repositories.values())
+
+    def __iter__(self):
+        return iter(self._repositories.values())
+
+    def extend(self, other):
+        for repository in other:
+            self.add(repository)
+
+    def add(self, repository):
+        if not isinstance(repository, Repository):
+            repository = Repository(repository, self._default_org)
+
+        existing = self._repositories.get(repository.handle)
+        if existing:
+            existing.extend(repository)
+            return
+
+        self._repositories[repository.handle] = repository
+
+    def matches(self, repository):
+        return any(r.matches(repository) for r in self._repositories.values())
+
+    def applies_to(self, repository, branch):
+        return any(r.applies_to(repository, branch) for r in self._repositories.values())
+
+
 class FreezeWindow(object):
     def __init__(self, yaml_data, default_org=None):
         # Skip if there is no from or no to
@@ -141,11 +292,11 @@ class FreezeWindow(object):
 
         # Cleanup invalid repositories from the lists
         self._repo_only = yaml_data['only'] = \
-            cleanup_invalid_repositories(force_list(yaml_data.get('only')), default_org)
+            RepositoryList(yaml_data.get('only'), default_org)
         self._repo_include = yaml_data['include'] = \
-            cleanup_invalid_repositories(force_list(yaml_data.get('include')), default_org)
+            RepositoryList(yaml_data.get('include'), default_org)
         self._repo_exclude = yaml_data['exclude'] = \
-            cleanup_invalid_repositories(force_list(yaml_data.get('exclude')), default_org)
+            RepositoryList(yaml_data.get('exclude'), default_org)
 
         # Add window id
         if 'id' in yaml_data and not isinstance(yaml_data['id'], str):
@@ -178,7 +329,7 @@ class FreezeWindow(object):
 
     @property
     def repositories(self):
-        return list(set(self._repo_only + self._repo_include))
+        return RepositoryList().extend(self._repo_only).extend(self._repo_include)
 
     @property
     def exclude(self):
@@ -213,9 +364,9 @@ class FreezeWindow(object):
         return list(set(a['handle'] for a in approvers if a.get('reviewer')))
 
     def matches(self, repository, is_global_repository=False):
-        repo_matches = matches(repository, self._repo_only) or \
-            matches(repository, self._repo_include) or \
-            (is_global_repository and not self._repo_only and not matches(repository, self._repo_exclude))
+        repo_matches = self._repo_only.matches(repository) or \
+            self._repo_include.matches(repository) or \
+            (is_global_repository and not self._repo_only and not self._repo_exclude.matches(repository))
 
         return repo_matches
 
@@ -514,10 +665,9 @@ class ConfigData(object):
         if os.path.exists(config_repositories_path):
             with open(config_repositories_path, 'r') as f:
                 contents = yaml.safe_load(f)
-                list_contents = force_list(contents)
-                cleaned_contents = cleanup_invalid_repositories(list_contents, self._default_org)
-                return cleaned_contents
-        return []
+
+                return RepositoryList(contents, self._default_org)
+        return RepositoryList(default_org=self._default_org)
 
     def __get_global_approvers(self):
         config_approvers_path = os.path.join(CONFIG_DIR, 'approvers.yaml')
@@ -546,7 +696,7 @@ class ConfigData(object):
         now = datetime.datetime.now(datetime.timezone.utc)
 
         # Check if the repository is in the globally defined repositories
-        global_repository = matches(repository, self.global_repositories)
+        global_repository = self.global_repositories.matches(repository)
 
         # Find all files in the schedules directory, recursively
         for window in self.freeze_windows:
