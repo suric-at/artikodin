@@ -75,7 +75,7 @@ def matches(repository, patterns):
 
 
 def force_list(value):
-    if isinstance(value, list):
+    if isinstance(value, list) or isinstance(value, tuple) or isinstance(value, set):
         return value
     elif isinstance(value, str):
         return [value]
@@ -97,32 +97,6 @@ def clean_approvers(approvers):
         valid_approvers.append(approver)
 
     return valid_approvers
-
-
-def cleanup_invalid_repositories(repositories, default_org=None):
-    logger = logging.getLogger('cleanup-invalid-repositories')
-
-    repos = []
-    for repository in repositories:
-        if not isinstance(repository, str):
-            logger.warning('Skipping repository %s because it is not a string', repository)
-            continue
-
-        if not '/' in repository:
-            if not default_org:
-                logger.warning('Skipping repository %s because no default organization is set', repository)
-                continue
-
-            repos.append('{}/{}'.format(default_org, repository))
-
-        org = repository.split('/', 1)[0]
-        if has_pattern_matching(org):
-            logger.warning('Skipping repository %s because the organization is a pattern', repository)
-            continue
-
-        repos.append(repository)
-
-    return repos
 
 
 class Repository(object):
@@ -171,12 +145,19 @@ class Repository(object):
         self._org = org
         self._name = name
         self._branches = set([b.lower() for b in branches]) if branches else None
+        self._is_pattern = has_pattern_matching(self._handle)
 
     def __repr__(self):
         return "Repository(handle={}, branches={})".format(
             self._handle,
             '*' if self._branches is None else self._branches,
         )
+
+    def __iter__(self):
+        return iter(self._branches)
+
+    def __in__(self, branch):
+        return branch in self._branches
 
     @property
     def handle(self):
@@ -191,6 +172,10 @@ class Repository(object):
         return self._name
 
     @property
+    def is_pattern(self):
+        return self._is_pattern
+
+    @property
     def branches(self):
         return self._branches
 
@@ -203,20 +188,31 @@ class Repository(object):
 
         if self._branches is None:
             # Nothing to do, we already match all branches
-            return
+            return self
 
         if other._branches is None:
             self._branches = None
-            return
+            return self
 
         self._branches.update(other._branches)
+        return self
 
     def matches(self, repository):
+        if isinstance(repository, Repository):
+            repository = repository.handle
         return fnmatch.fnmatch(repository, self._handle)
 
-    def applies_to(self, repository, branch):
-        return self.matches(repository) and (
-            self._branches is None or branch.lower() in self._branches)
+    def matches_with_branch(self, repository, branch):
+        if not self.matches(repository):
+            return False
+
+        if self._branches is None:
+            return True
+
+        if callable(branch):
+            branch = branch()
+
+        return branch.lower() in self._branches
 
 
 class RepositoryList(object):
@@ -247,19 +243,30 @@ class RepositoryList(object):
             list(self._repositories.values()),
         )
 
+    def __iter__(self):
+        return iter(self._repositories.values())
+
+    def __len__(self):
+        return len(self._repositories)
+
     @property
     def repositories(self):
         return list(self._repositories.values())
 
-    def __iter__(self):
-        return iter(self._repositories.values())
-
     def extend(self, other):
         for repository in other:
             self.add(repository)
+        return self
 
-    def add(self, repository):
-        if not isinstance(repository, Repository):
+    def add(self, repository, branches=None):
+        if branches is not None and not isinstance(repository, str):
+            raise RuntimeError("Cannot provide branches when repository is not a string")
+        elif not isinstance(repository, Repository):
+            if branches:
+                repository = {
+                    "handle": repository,
+                    "branches": branches,
+                }
             repository = Repository(repository, self._default_org)
 
         existing = self._repositories.get(repository.handle)
@@ -272,8 +279,20 @@ class RepositoryList(object):
     def matches(self, repository):
         return any(r.matches(repository) for r in self._repositories.values())
 
-    def applies_to(self, repository, branch):
-        return any(r.applies_to(repository, branch) for r in self._repositories.values())
+    def matches_with_branch(self, repository, branch):
+        return any(r.matches_with_branch(repository, branch) for r in self._repositories.values())
+
+    def split_pattern_matching(self):
+        with_pattern_matching = RepositoryList()
+        without_pattern_matching = RepositoryList()
+
+        for repository in self._repositories.values():
+            if repository.is_pattern:
+                with_pattern_matching.add(repository)
+            else:
+                without_pattern_matching.add(repository)
+
+        return with_pattern_matching, without_pattern_matching
 
 
 class FreezeWindow(object):
@@ -367,6 +386,13 @@ class FreezeWindow(object):
         repo_matches = self._repo_only.matches(repository) or \
             self._repo_include.matches(repository) or \
             (is_global_repository and not self._repo_only and not self._repo_exclude.matches(repository))
+
+        return repo_matches
+
+    def matches_with_branch(self, repository, branch, is_global_repository=False):
+        repo_matches = self._repo_only.matches_with_branch(repository, branch) or \
+            self._repo_include.matches_with_branch(repository, branch) or \
+            (is_global_repository and not self._repo_only and not self._repo_exclude.matches_with_branch(repository, branch))
 
         return repo_matches
 
@@ -665,7 +691,6 @@ class ConfigData(object):
         if os.path.exists(config_repositories_path):
             with open(config_repositories_path, 'r') as f:
                 contents = yaml.safe_load(f)
-
                 return RepositoryList(contents, self._default_org)
         return RepositoryList(default_org=self._default_org)
 
@@ -692,19 +717,29 @@ class ConfigData(object):
                         logging.getLogger('config-data').warning('Skipping freeze window %s: %s', file, e)
                         continue
 
-    def find_active_freeze_window_for(self, repository):
+    def find_active_freeze_window_for(self, repository, target_base_branch):
         now = datetime.datetime.now(datetime.timezone.utc)
 
         # Check if the repository is in the globally defined repositories
-        global_repository = self.global_repositories.matches(repository)
+        global_repository = None
 
         # Find all files in the schedules directory, recursively
         for window in self.freeze_windows:
-            if not window.matches(repository, global_repository):
+            if not window.applies_to(now):
                 continue
 
-            if window.applies_to(now):
-                return window.with_extra_approvers(self.global_approvers)
+            if global_repository is None:
+                global_repository = self.global_repositories.matches_with_branch(
+                    repository,
+                    target_base_branch,
+                )
+
+            if not window.matches_with_branch(repository,
+                                              target_base_branch,
+                                              global_repository):
+                continue
+
+            return window.with_extra_approvers(self.global_approvers)
 
 
 def split_pattern_matching(list_values):
@@ -756,9 +791,29 @@ class Run(object):
 
         return branches
 
+    def target_base_branch(self):
+        if not self.args.base_branch:
+            # Get the target repository
+            target_repo = self.gh.get_repo(self.args.repository, lazy=True)
+
+            # Get the target pull request
+            self.logger.info('Getting target pull request %s', self.args.pull_request)
+            target_pr = target_repo.get_pull(self.args.pull_request)
+
+            # Get the target base branch
+            self.logger.info('Getting target pull request base branch')
+            self.args.branch = target_pr.base.ref
+
+            self.logger.info('Target pull request base branch is %s', self.args.branch)
+
+        return self.args.branch
+
     def _check_freeze(self):
         self.logger.info('Checking if repository %s is in a freeze window', self.args.repository)
-        freeze_window = self.cfg.find_active_freeze_window_for(self.args.repository)
+        freeze_window = self.cfg.find_active_freeze_window_for(
+            self.args.repository,
+            self.target_base_branch,
+        )
         if not freeze_window:
             self.logger.info('No freeze window found that applies to repository %s', self.args.repository)
             return
@@ -1144,26 +1199,47 @@ class Run(object):
         # Get all the pull requests from the repository that:
         # - are open
         # - are mergeable
-        # - are against 'main'
+        # - are against a branch we care about
+
+        # Exit early if the max age is 0
+        if max_age_days < 1:
+            return
+
+        # Exit early if the repository has no branches specified (and does not match all)
+        if repository.branches is not None and len(repository.branches) == 0:
+            return
 
         # Get the repository
-        target_repo = self.gh.get_repo(repository, lazy=True)
+        target_repo = self.gh.get_repo(repository.handle, lazy=True)
 
         # Get and filter the pull requests
-        self.logger.info('Getting pull requests for repository %s', repository)
-        pull_requests = list(target_repo.get_pulls(
-            state='open',
-            base='main',
-            sort='created',
-            direction='desc',
-        ))
+        self.logger.info('Getting pull requests for repository %s', repository.handle)
 
-        for pr in pull_requests:
+        # Prepare the arguments for listing the pull requests
+        get_pulls_kwargs = {
+            'state': 'open',
+            'sort': 'created',
+            'direction': 'desc',
+        }
+
+        # Filter by base branch if a single base branch has been provided
+        if repository.branches is not None and len(repository.branches) == 1:
+            get_pulls_kwargs['base'] = list(repository.branches)[0]
+
+        # Now get the pull requests
+        for pr in target_repo.get_pulls(**get_pulls_kwargs):
             # Check if the pull request is older than the max age
             if (datetime.datetime.now(datetime.timezone.utc) - pr.created_at).days > max_age_days:
                 break
 
+            # If not mergeable, nothing to do because it will need to
+            # be updated anyway, so might as well avoid the noise and
+            # extra API calls for now
             if not pr.mergeable:
+                continue
+
+            # If not matching a branch we care about, nothing to do
+            if repository.branches is not None and pr.base.ref.lower() not in repository.branches:
                 continue
 
             # Get the commit
@@ -1171,7 +1247,7 @@ class Run(object):
             commit = target_repo.get_commit(pr.head.sha)
 
             # Freeze the pull request
-            self.logger.info('Freezing pull request %s #%s', repository, pr.number)
+            self.logger.info('Freezing pull request %s #%s', repository.handle, pr.number)
             commit.create_status(
                 state='error',
                 description='The repository is frozen',
@@ -1234,13 +1310,13 @@ class Run(object):
         # Get the exception request branches
         all_branches = self.repo_branches(ctrl_repo)
 
-        # Prepare this so we don't build that object twice
-        target_repo = self.gh.get_repo(repository, lazy=True)
+        # We also need to work with the target repository
+        target_repo = self.gh.get_repo(repository.handle, lazy=True)
 
         # Go over the branches and find the ones that match the repository
         for branch in all_branches:
             m = self.cfg.exceptions_branch_regex.match(branch.name)
-            if not m or m.group('repository') != repository:
+            if not m or not repository.matches(m.group('repository')):
                 continue
 
             # Get the exception request pull request
@@ -1283,7 +1359,7 @@ class Run(object):
             if target_pr.state != 'open':
                 self.logger.info(
                         'Target pull request %s #%s is no longer open; skipping',
-                        repository, m.group('pr_num'))
+                        repository.handle, m.group('pr_num'))
 
                 if target_pr.merged:
                     self.logger.info('Adding target merged labels %s to exception request %s',
@@ -1319,21 +1395,38 @@ class Run(object):
         if max_age_days < 1:
             return
 
-        # Get and filter the pull requests
-        self.logger.info('Getting pull requests for repository %s', repository)
-        pull_requests = list(target_repo.get_pulls(
-            state='open',
-            base='main',
-            sort='created',
-            direction='desc',
-        ))
+        # Exit if the repository has no branches specified (and does not match all)
+        if repository.branches is not None and len(repository.branches) == 0:
+            return
 
-        for pr in pull_requests:
+        # Get and filter the pull requests
+        self.logger.info('Getting pull requests for repository %s', repository.handle)
+
+        # Prepare the arguments for listing the pull requests
+        get_pulls_kwargs = {
+            'state': 'open',
+            'sort': 'created',
+            'direction': 'desc',
+        }
+
+        # Filter by base branch if a single base branch has been provided
+        if repository.branches is not None and len(repository.branches) == 1:
+            get_pulls_kwargs['base'] = list(repository.branches)[0]
+
+        # Now get the pull requests
+        for pr in target_repo.get_pulls(**get_pulls_kwargs):
             # Check if the pull request is older than the max age
             if (datetime.datetime.now(datetime.timezone.utc) - pr.created_at).days > max_age_days:
                 break
 
+            # If not mergeable, nothing to do because it will need to
+            # be updated anyway, so might as well avoid the noise and
+            # extra API calls for now
             if not pr.mergeable:
+                continue
+
+            # If not matching a branch we care about, nothing to do
+            if repository.branches is not None and pr.base.ref.lower() not in repository.branches:
                 continue
 
             # Get the commit
@@ -1341,7 +1434,7 @@ class Run(object):
             commit = target_repo.get_commit(pr.head.sha)
 
             # Unfreeze the pull request
-            self.logger.info('Unfreezing pull request %s #%s', repository, pr.number)
+            self.logger.info('Unfreezing pull request %s #%s', repository.handle, pr.number)
             commit.create_status(
                 state='success',
                 description='The repository is not frozen',
@@ -1379,40 +1472,58 @@ class Run(object):
             ctrl_repo.get_git_ref(ref=f"heads/{freeze_window_branch_name}").delete()
 
     def _get_affected_repositories(self, freeze_windows):
-        all_affected_repositories = set()
-        pattern_matchings = set()
+        all_affected_repositories = RepositoryList()
+        pattern_matchings = RepositoryList()
 
-        with_patterns, without_patterns = split_pattern_matching(self.cfg.global_repositories)
-        all_affected_repositories.update(without_patterns)
-        pattern_matchings.update(with_patterns)
+        with_patterns, without_patterns = self.cfg.global_repositories.split_pattern_matching()
+        all_affected_repositories.extend(without_patterns)
+        pattern_matchings.extend(with_patterns)
 
         # Add both to activate and to cleanup to the same list
         for freeze_window in freeze_windows:
             # We don't need to check exclude, as we only need to know where this would apply
             repositories = freeze_window.repositories
 
-            with_patterns, without_patterns = split_pattern_matching(repositories)
-            all_affected_repositories.update([r for r in without_patterns if not matches(r, freeze_window.exclude)])
-            pattern_matchings.update(with_patterns)
+            with_patterns, without_patterns = repositories.split_pattern_matching()
+            all_affected_repositories.extend([
+                r for r in without_patterns
+                if not freeze_window.exclude.matches(r)
+            ])
+            pattern_matchings.extend(with_patterns)
 
         # Now compute which of these are patterns for the organization, we
         # assume that no '/' means "same org as controller"
         orgs_patterns = {}
-        for pattern in pattern_matchings:
-            org = pattern.split('/', 1)[0]
-            orgs_patterns.setdefault(org, set()).add(pattern)
+        for repository in pattern_matchings:
+            orgs_patterns.setdefault(repository.org, set()).add(repository)
 
         # If there is pattern matching, get the list of affected repositories
         # by listing all the repositories in all the organizations that we have
-        if not pattern_matchings:
-            for org_name, patterns in orgs_patterns.items():
+        if pattern_matchings:
+            unfiltered = RepositoryList()
+
+            for org_name, repositories in orgs_patterns.items():
                 self.logger.info('Getting matching repositories from organization %s', org_name)
                 org = self.gh.get_organization(org_name)
-                matching_repos = [repo.full_name
-                                  for repo in org.get_repos()
-                                  if matches(repo.full_name, patterns)]
-                all_affected_repositories.update(matching_repos)
-                self.logger.info('Found %s matching repositories in organization %s', len(matching_repos), org_name)
+
+                for repo in org.get_repos():
+                    for repository in repositories:
+                        if repository.matches(repo.full_name):
+                            unfiltered.add(repo.full_name, repository.branches)
+                            self.logger.info('Found matching repository %s for pattern %s', repo.full_name, repository)
+
+            # Go over the freeze windows and make sure that we only include
+            # the repositories that are not excluded by the freeze windows
+            # that match them
+            filtered = RepositoryList()
+            for freeze_window in freeze_windows:
+                for repository in unfiltered:
+                    global_repository = self.cfg.global_repositories.matches(repository)
+                    if freeze_window.matches(repository, global_repository):
+                        filtered.add(repository)
+
+            self.logger.info('Found %d repositories matching the patterns', len(filtered))
+            all_affected_repositories.extend(filtered)
 
         return all_affected_repositories
 
@@ -1421,7 +1532,7 @@ class Run(object):
         new_unfrozen_repositories = {}
 
         def select_windows_matching_repo(freeze_windows, repository):
-            global_repository = matches(repository, self.cfg.global_repositories)
+            global_repository = self.cfg.global_repositories.matches(repository)
             for window in freeze_windows:
                 if window.matches(repository, global_repository):
                     yield window
@@ -1434,13 +1545,13 @@ class Run(object):
 
             new_frozen_windows = list(select_windows_matching_repo(freeze_windows_to_activate.values(), repository))
             if new_frozen_windows:
-                self.logger.info('Repository %s needs to be frozen', repository)
+                self.logger.info('Repository %s needs to be frozen 🥶', repository.handle)
                 new_frozen_repositories[repository] = [w.id for w in new_frozen_windows]
                 continue
 
             new_unfrozen_windows = list(select_windows_matching_repo(freeze_windows_to_cleanup.values(), repository))
             if new_unfrozen_windows:
-                self.logger.info('Repository %s needs to be unfrozen', repository)
+                self.logger.info('Repository %s needs to be unfrozen 🔥', repository.handle)
                 new_unfrozen_repositories[repository] = [w.id for w in new_unfrozen_windows]
                 continue
 
@@ -1661,8 +1772,11 @@ def main():
         help='The pull request to check.',
     )
     update_parser.add_argument(
+        '--base_branch',
+        help='The base branch of the target pull request.',
+    )
+    update_parser.add_argument(
         '--commit',
-        required=False,  # If not provided, we'll get it from the pull request
         help='The commit to check.',
     )
 
@@ -1694,6 +1808,10 @@ def main():
         '--pull-request',
         type=int,
         help='The pull request to check.',
+    )
+    request_parser.add_argument(
+        '--base_branch',
+        help='The base branch of the target pull request.',
     )
     request_parser.add_argument(
         '--commit',
@@ -1736,9 +1854,11 @@ def main():
             ('controller_pull_request', 'repository'),
             ('controller_pull_request', 'pull_request'),
             ('controller_pull_request', 'commit'),
+            ('controller_pull_request', 'base_branch'),
             ('head_ref', 'repository'),
             ('head_ref', 'pull_request'),
             ('head_ref', 'commit'),
+            ('head_ref', 'base_branch'),
         )
         for c in invalid_combinations:
             if getattr(args, c[0]) and getattr(args, c[1]):
