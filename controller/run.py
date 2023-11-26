@@ -221,8 +221,9 @@ class Run(object):
         if len(exception_request_prs) == 0:
             if target_pr.state != 'open':
                 if best_effort:
-                    self.logger.info('Target pull request %s #%s is no longer open; ignoring',
-                                     self.args.repository, self.args.pull_request)
+                    self.logger.info('Target pull request %s #%s has been %s; ignoring',
+                                     self.args.repository, self.args.pull_request,
+                                     target_pr.merged and 'merged' or 'closed')
                     return {
                         'skip_status_update': True,
                         'exists': False,
@@ -232,8 +233,9 @@ class Run(object):
                         'url': None,
                     }
 
-                raise RuntimeError("Target pull request %s #%s is no longer open",
-                                   self.args.repository, self.args.pull_request)
+                raise RuntimeError("Target pull request %s #%s has been %s",
+                                   self.args.repository, self.args.pull_request,
+                                   target_pr.merged and 'merged' or 'closed')
 
             return self._create_exception_request_pr(freeze_window, target_pr, exception_request_pr_branch)
 
@@ -244,13 +246,17 @@ class Run(object):
         # Check if the target pull request is still open
         if target_pr.state != 'open':
             # Close the exception request PR
-            self.logger.info('Target pull request %s #%s is no longer open; '
+            self.logger.info('Target pull request %s #%s has been %s; '
                              'closing exception request %s',
                              self.args.repository, self.args.pull_request,
+                             target_pr.merged and 'merged' or 'closed',
                              exception_request_pr_branch)
             exception_request_pr.create_issue_comment(
-                'The target pull request is no longer open; '
-                'closing this exception request')
+                ('The target pull request has been **{}**; '
+                 'closing this exception request').format(
+                    target_pr.merged and 'merged' or 'closed',
+                ),
+            )
             exception_request_pr.edit(state='closed')
 
             if target_pr.merged:
@@ -607,8 +613,9 @@ class Run(object):
             # Check if the pull request is still open
             if target_pr.state != 'open':
                 self.logger.info(
-                        'Target pull request %s #%s is no longer open; skipping',
-                        repository.handle, m.group('pr_num'))
+                        'Target pull request %s #%s has been %s; skipping',
+                        repository.handle, m.group('pr_num'),
+                        target_pr.merged and 'merged' or 'closed')
 
                 if target_pr.merged:
                     self.logger.info('Adding target merged labels %s to exception request %s',
