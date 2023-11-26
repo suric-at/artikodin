@@ -59,8 +59,8 @@ labels:
   # The merged labels will be placed on exception request pull requests
   # when the target pull request has been merged
   target_merged:
-    - target_merged
+    - target merged
   # The closed labels will be placed on exception request pull requests
   # when the target pull request has been closed
   target_closed:
-    - target_closed
+    - target closed
