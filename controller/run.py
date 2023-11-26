@@ -1617,7 +1617,7 @@ def main():
 
     gh = GithubApp(args.app_id, args.private_key)
     try:
-        if args.controller_pull_request:
+        if hasattr(args, 'controller_pull_request') and args.controller_pull_request:
             # Get the controller repository
             ctrl_repo = gh.get_repo(args.controller_repository, lazy=True)
 
