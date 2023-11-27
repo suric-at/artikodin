@@ -1,4 +1,4 @@
-name: Request handler
+name: Request sync handler
 run-name: "Update authorization for ${{ github.event.client_payload.repository || inputs.repository }} (#${{ github.event.client_payload.pull_request || inputs.pull_request }})"
 
 
@@ -6,7 +6,7 @@ on:
   # Runs on a repository dispatch
   repository_dispatch:
     types:
-      - request
+      - sync
 
   # Runs on a workflow dispatch
   workflow_dispatch:
