@@ -7,11 +7,11 @@ from github import Github, GithubIntegration, Auth
 @contextmanager
 def github_apps(ctrl_args, contents_args):
     if ctrl_args == contents_args:
-        with github_app_auth(ctrl_args.app_id, ctrl_args.private_key) as gh:
+        with github_app_auth(*ctrl_args) as gh:
             yield gh, gh
     else:
-        with github_app_auth(ctrl_args.app_id, ctrl_args.private_key) as gh_ctrl:
-            with github_app_auth(contents_args.app_id, contents_args.private_key) as gh_contents:
+        with github_app_auth(*ctrl_args) as gh_ctrl:
+            with github_app_auth(*contents_args) as gh_contents:
                 yield gh_ctrl, gh_contents
 
 
