@@ -10,8 +10,8 @@ def github_apps(ctrl_args, contents_args):
         with github_app_auth(*ctrl_args) as gh:
             yield gh, gh
     else:
-        with github_app_auth(*ctrl_args) as gh_ctrl:
-            with github_app_auth(*contents_args) as gh_contents:
+        with github_app_auth(*ctrl_args, context='controller') as gh_ctrl:
+            with github_app_auth(*contents_args, context='contents') as gh_contents:
                 yield gh_ctrl, gh_contents
 
 
@@ -25,9 +25,10 @@ def github_app_auth(*args, **kwargs):
 
 
 class GithubApp(object):
-    def __init__(self, app_id, private_key):
+    def __init__(self, app_id, private_key, context=None):
         self.logger = logging.getLogger('github-app')
-        self.logger.info('Creating GithubApp object')
+        self.logger.info('Creating GithubApp object{}'.format('({})'.format(context) if context else ''))
+        self._context = context
 
         ghauth = Auth.AppAuth(app_id, private_key)
         ghi = GithubIntegration(auth=ghauth)
@@ -38,7 +39,7 @@ class GithubApp(object):
         #  self.__gh = Github(self.__access_token.token)
 
     def revoke(self):
-        self.logger.info('Revoking token')
+        self.logger.info('Revoking token{}'.format(' ({})'.format(self._context) if self._context else ''))
         return self.requester.requestJsonAndCheck('DELETE', "https://api.github.com/installation/token")
 
     def create_empty_root_commit(self, repo, message="Initial commit"):

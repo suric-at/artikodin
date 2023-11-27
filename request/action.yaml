@@ -127,39 +127,16 @@ runs:
         TARGET_PULL_REQUEST: ${{ inputs.target-pull-request }}
         TARGET_GIT_SHA: ${{ inputs.target-git-sha }}
         EXCEPTION_PULL_REQUEST: ${{ inputs.controller-pull-request }}
-        BEST_EFFORT: ${{ inputs.closing-pr == 'true' && '--best-effort' || '' }}
+        VERB: ${{ inputs.request-exception == 'true' && 'request' || 'update' }}
+        BEST_EFFORT: ${{ inputs.request-exception == 'false' && inputs.closing-pr == 'true' && '--best-effort' || '' }}
       run: |
         ./controller/run.py \
           --controller-app-id "$ARTIKODIN_CONTROLLER_APP_ID" \
           --controller-private-key "$ARTIKODIN_CONTROLLER_PRIVATE_KEY" \
           --contents-app-id "$ARTIKODIN_CONTENTS_APP_ID" \
           --contents-private-key "$ARTIKODIN_CONTENTS_PRIVATE_KEY" \
-          update ${{ env.BEST_EFFORT }} \
+          ${{ env.VERB }} ${{ env.BEST_EFFORT }} \
           ${TARGET_PULL_REQUEST:+--pull-request $TARGET_PULL_REQUEST} \
           ${TARGET_GIT_SHA:+--commit $TARGET_GIT_SHA} \
           ${EXCEPTION_PULL_REQUEST:+--exception-pull-request $EXCEPTION_PULL_REQUEST} \
           --repository "${{ env.TARGET_REPOSITORY }}"
-
-    # - name: Create application token for the action repository
-      # uses: actions/create-github-app-token@v1
-      # id: action-app-token
-      # with:
-        # app-id: ${{ inputs.app-id }}
-        # private-key: ${{ inputs.private-key }}
-        # owner: ${{ env.ACTION_REPOSITORY_OWNER }}
-        # repositories: ${{ env.ACTION_REPOSITORY_NAME }}
-
-    # - name: Send repository dispatch to request authorization
-      # uses: peter-evans/repository-dispatch@v2
-      # with:
-        # token: ${{ steps.action-app-token.outputs.token }}
-        # repository: ${{ env.ACTION_REPOSITORY }}
-        # event-type: ${{ inputs.request-exception == 'true' && 'request-exception' || 'sync' }}
-        # client-payload: |
-          # {
-            # "repository": "${{ env.TARGET_REPOSITORY }}",
-            # "controller_pull_request": "${{ inputs.controller-pull-request }}",
-            # "pull_request": "${{ env.TARGET_PULL_REQUEST }}",
-            # "git_sha": "${{ inputs.target-git-sha }}",
-            # "best_effort": ${{ inputs.closing-pr == 'true' }}
-          # }
