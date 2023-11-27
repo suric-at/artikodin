@@ -1051,7 +1051,7 @@ def main():
             help='The pull request to check.',
         )
         parser.add_argument(
-            '--base_branch',
+            '--base-branch',
             help='The base branch of the target pull request.',
         )
         parser.add_argument(
@@ -1138,7 +1138,8 @@ def main():
         )
         for c in invalid_combinations:
             if getattr(args, c[0]) and getattr(args, c[1]):
-                raise argparse.ArgumentError(None, "Cannot specify both --{} and --{}".format(*c))
+                raise argparse.ArgumentError(None, "Cannot specify both --{} and --{}".format(
+                    *[cc.replace('_', '-') for cc in c]))
 
         required_combinations = (
             ('repository', 'pull_request'),

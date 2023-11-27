@@ -95,13 +95,19 @@ runs:
         VERB: ${{ inputs.request-exception == 'true' && 'request' || 'update' }}
         BEST_EFFORT: ${{ inputs.request-exception == 'false' && inputs.closing-pr == 'true' && '--best-effort' || '' }}
       run: |
+        ARGS=()
+        if [[ -n "$EXCEPTION_PULL_REQUEST" ]]; then
+          ARGS+=("--exception-pull-request" "$EXCEPTION_PULL_REQUEST")
+        else
+          ARGS+=("--repository" "${{ env.TARGET_REPOSITORY }}")
+          ARGS+=("--pull-request" "$TARGET_PULL_REQUEST")
+          [[ -n "$TARGET_GIT_SHA" ]] && ARGS+=("--commit" "$TARGET_GIT_SHA")
+        fi
+
         ./controller/run.py \
           --controller-app-id "$ARTIKODIN_CONTROLLER_APP_ID" \
           --controller-private-key "$ARTIKODIN_CONTROLLER_PRIVATE_KEY" \
           --contents-app-id "$ARTIKODIN_CONTENTS_APP_ID" \
           --contents-private-key "$ARTIKODIN_CONTENTS_PRIVATE_KEY" \
           ${{ env.VERB }} ${{ env.BEST_EFFORT }} \
-          ${TARGET_PULL_REQUEST:+--pull-request $TARGET_PULL_REQUEST} \
-          ${TARGET_GIT_SHA:+--commit $TARGET_GIT_SHA} \
-          ${EXCEPTION_PULL_REQUEST:+--exception-pull-request $EXCEPTION_PULL_REQUEST} \
-          --repository "${{ env.TARGET_REPOSITORY }}"
+          "${ARGS[@]}"
