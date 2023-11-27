@@ -450,11 +450,15 @@ class Run(object):
         self.logger.info('Getting %s branch', self.cfg.active_windows_base_branch)
         return ctrl_repo.get_branch(branch=self.cfg.active_windows_base_branch)
 
-    def _freeze_repository(self, repository, max_age_days=90):
+    def _freeze_repository(self, repository, max_age_days=None):
         # Get all the pull requests from the repository that:
         # - are open
         # - are mergeable
         # - are against a branch we care about
+
+        # Get the max age from the configuration if not specified
+        if max_age_days is None:
+            max_age_days = self.cfg.activating_window_pr_max_age_days
 
         # Exit early if the max age is 0
         if max_age_days < 1:
@@ -473,7 +477,7 @@ class Run(object):
         # Prepare the arguments for listing the pull requests
         get_pulls_kwargs = {
             'state': 'open',
-            'sort': 'created',
+            'sort': 'updated',
             'direction': 'desc',
         }
 
@@ -484,7 +488,7 @@ class Run(object):
         # Now get the pull requests
         for pr in target_repo.get_pulls(**get_pulls_kwargs):
             # Check if the pull request is older than the max age
-            if (datetime.datetime.now(datetime.timezone.utc) - pr.created_at).days > max_age_days:
+            if (datetime.datetime.now(datetime.timezone.utc) - pr.updated_at).days > max_age_days:
                 break
 
             # If not mergeable, nothing to do because it will need to
@@ -545,7 +549,7 @@ class Run(object):
                 sha=active_windows_branch.commit.sha,
             )
 
-    def _unfreeze_repository(self, repository, max_age_days=90):
+    def _unfreeze_repository(self, repository, max_age_days=None):
         # To unfreeze a repository, we need to:
         #  - List the controller repository branches that match an exception request
         #    for the repository
@@ -646,6 +650,10 @@ class Run(object):
                 "The freeze on this repository has been lifted; "
                 "this pull request is no longer frozen. 🔥🔥🔥")
 
+        # Get the max age from the configuration if not specified
+        if max_age_days is None:
+            max_age_days = self.cfg.deactivating_window_pr_max_age_days
+
         # Only go over the pull requests that did not have an exception request
         # branch if the max age is greater than 0
         if max_age_days < 1:
@@ -661,7 +669,7 @@ class Run(object):
         # Prepare the arguments for listing the pull requests
         get_pulls_kwargs = {
             'state': 'open',
-            'sort': 'created',
+            'sort': 'updated',
             'direction': 'desc',
         }
 
@@ -672,7 +680,7 @@ class Run(object):
         # Now get the pull requests
         for pr in target_repo.get_pulls(**get_pulls_kwargs):
             # Check if the pull request is older than the max age
-            if (datetime.datetime.now(datetime.timezone.utc) - pr.created_at).days > max_age_days:
+            if (datetime.datetime.now(datetime.timezone.utc) - pr.updated_at).days > max_age_days:
                 break
 
             # If not mergeable, nothing to do because it will need to
@@ -1082,7 +1090,15 @@ def main():
 
     args = parser.parse_args()
 
-    def parse_repository(repository):
+    def parse_repository(repository, default_owner=None):
+        if '/' not in repository:
+            if default_owner is None:
+                raise argparse.ArgumentError(
+                    None,
+                    "Invalid repository '{}', must be of the form 'owner/name'".format(repository))
+            else:
+                return default_owner, repository
+
         owner, name = repository.split('/', 1)
         return owner, name
 
@@ -1160,7 +1176,8 @@ def main():
             args.pull_request = int(m.group('pr_num'))
 
         if hasattr(args, 'repository'):
-            args.repository_owner, args.repository_name = parse_repository(args.repository)
+            args.repository_owner, args.repository_name = parse_repository(
+                args.repository, default_owner=args.controller_repository_owner)
 
         # Now that we have the arguments, we can create the run object
         run = Run(gh, args, cfg=cfg)

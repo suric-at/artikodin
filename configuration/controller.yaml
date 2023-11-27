@@ -31,6 +31,22 @@ windows:
   # nothing and are just used for tracking for the cron updates.
   branch_format: active-freeze/{freeze_window_id}
 
+  # Configure the maximum staleness of a pull request to be
+  # considered to be automatically frozen when a freeze window
+  # gets activated. This is to avoid looking too far ago for
+  # large repositories with many open pull requests.
+  # Needs to be greater or equal than 0. 0 means no pull request
+  # will be frozen when a freeze window gets activated.
+  freeze_max_age_days: 90
+
+  # Configure the maximum staleness of a pull request to be
+  # considered to be automatically unfrozen when a freeze window
+  # gets activated. This is to avoid looking too far ago for
+  # large repositories with many open pull requests.
+  # Needs to be greater or equal than 0. 0 means no pull request
+  # will be frozen when a freeze window gets deactivated.
+  unfreeze_max_age_days: 90
+
 # Configure the labels that will be put on pull requests. All
 # categories need to have at least one label set.
 labels:

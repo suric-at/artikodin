@@ -3,3 +3,15 @@ up:
   - custom:
       dir: controller
       meet: pip install -r requirements.txt
+
+commands:
+  check-config:
+    name: Checking the configuration of the controller
+    run: |
+      cd controller
+      eval "$(omni hook env 2>/dev/null)"
+      ./run.py \
+        --app-id dummy \
+        --private-key dummy \
+        --controller-repository dummy/dummy \
+        check-config

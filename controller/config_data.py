@@ -104,6 +104,14 @@ class ConfigData(object):
         return self._active_windows_branch_prefix
 
     @property
+    def activating_window_pr_max_age_days(self):
+        return self.controller['windows']['freeze_max_age_days']
+
+    @property
+    def deactivating_window_pr_max_age_days(self):
+        return self.controller['windows']['unfreeze_max_age_days']
+
+    @property
     def labels(self):
         return set(label for labels in self.controller['labels'].values() for label in labels)
 
@@ -219,6 +227,12 @@ class ConfigData(object):
                 },
                 'branch_format': {
                     '_validate': validate_branch_name('freeze_window_id'),
+                },
+                'freeze_max_age_days': {
+                    '_validate': lambda v: isinstance(v, int) and v >= 0,
+                },
+                'unfreeze_max_age_days': {
+                    '_validate': lambda v: isinstance(v, int) and v >= 0,
                 },
             },
             'labels': {
