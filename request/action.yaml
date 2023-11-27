@@ -3,12 +3,20 @@ description: 'Triggering the Artikodin controller to update pull request status'
 
 
 inputs:
-  app-id:
-    description: "GitHub app ID"
+  contents-app-id:
+    description: "GitHub app ID for access to contents repositories"
     required: true
 
-  private-key:
-    description: "GitHub app private key"
+  contents-private-key:
+    description: "GitHub app private key for access to contents repositories"
+    required: true
+
+  controller-app-id:
+    description: "GitHub app ID for access to controller repositories"
+    required: true
+
+  controller-private-key:
+    description: "GitHub app private key for access to controller repositories"
     required: true
 
   target-from-head-ref:
@@ -91,26 +99,72 @@ runs:
         status: "pending"
         description: "Requesting authorization"
 
-    - name: Create application token for the action repository
-      uses: actions/create-github-app-token@v1
-      id: action-app-token
-      with:
-        app-id: ${{ inputs.app-id }}
-        private-key: ${{ inputs.private-key }}
-        owner: ${{ env.ACTION_REPOSITORY_OWNER }}
-        repositories: ${{ env.ACTION_REPOSITORY_NAME }}
+      - name: Checkout controller repository
+        uses: actions/checkout@v4
+        with:
 
-    - name: Send repository dispatch to request authorization
-      uses: peter-evans/repository-dispatch@v2
-      with:
-        token: ${{ steps.action-app-token.outputs.token }}
-        repository: ${{ env.ACTION_REPOSITORY }}
-        event-type: ${{ inputs.request-exception == 'true' && 'request-exception' || 'sync' }}
-        client-payload: |
-          {
-            "repository": "${{ env.TARGET_REPOSITORY }}",
-            "controller_pull_request": "${{ inputs.controller-pull-request }}",
-            "pull_request": "${{ env.TARGET_PULL_REQUEST }}",
-            "git_sha": "${{ inputs.target-git-sha }}",
-            "best_effort": ${{ inputs.closing-pr == 'true' }}
-          }
+          ref: main
+
+      - name: Setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r controller/requirements.txt
+
+      - name: Run update script
+        env:
+          ARTIKODIN_CONTROLLER_APP_ID: ${{ secrets.ARTIKODIN_CONTROLLER_APP_ID }}
+          ARTIKODIN_CONTROLLER_PRIVATE_KEY: ${{ secrets.ARTIKODIN_CONTROLLER_PRIVATE_KEY }}
+          ARTIKODIN_CONTENTS_APP_ID: ${{ secrets.ARTIKODIN_CONTENTS_APP_ID }}
+          ARTIKODIN_CONTENTS_PRIVATE_KEY: ${{ secrets.ARTIKODIN_CONTENTS_PRIVATE_KEY }}
+          TARGET_REPOSITORY: ${{ github.event.client_payload.repository || inputs.repository }}
+          TARGET_PULL_REQUEST: |
+            ${{ inputs.target-pull-request != "" &&
+                format('--pull-request {0}', inputs.target-pull-request) || '' }}
+          TARGET_GIT_SHA: |
+            ${{ inputs.target-git-sha != "" &&
+                format('--commit {0}', inputs.target-git-sha) || '' }}
+          CONTROLLER_PULL_REQUEST: |
+            ${{ inputs.controller-pull-request != "" &&
+                format('--controller-pull-request {0}', inputs.controller-pull-request) || '' }}
+          BEST_EFFORT: ${{ inputs.closing-pr == 'true' && '--best-effort' || '' }}
+        run: |
+          ./controller/run.py \
+            --controller-app-id "$ARTIKODIN_CONTROLLER_APP_ID" \
+            --controller-private-key "$ARTIKODIN_CONTROLLER_PRIVATE_KEY" \
+            --contents-app-id "$ARTIKODIN_CONTENTS_APP_ID" \
+            --contents-private-key "$ARTIKODIN_CONTENTS_PRIVATE_KEY" \
+            update \
+            ${{ env.BEST_EFFORT }} \
+            ${{ env.TARGET_PULL_REQUEST }} \
+            ${{ env.TARGET_GIT_SHA }} \
+            ${{ env.CONTROLLER_PULL_REQUEST }} \
+            --repository "${{ env.TARGET_REPOSITORY }}"
+
+    # - name: Create application token for the action repository
+      # uses: actions/create-github-app-token@v1
+      # id: action-app-token
+      # with:
+        # app-id: ${{ inputs.app-id }}
+        # private-key: ${{ inputs.private-key }}
+        # owner: ${{ env.ACTION_REPOSITORY_OWNER }}
+        # repositories: ${{ env.ACTION_REPOSITORY_NAME }}
+
+    # - name: Send repository dispatch to request authorization
+      # uses: peter-evans/repository-dispatch@v2
+      # with:
+        # token: ${{ steps.action-app-token.outputs.token }}
+        # repository: ${{ env.ACTION_REPOSITORY }}
+        # event-type: ${{ inputs.request-exception == 'true' && 'request-exception' || 'sync' }}
+        # client-payload: |
+          # {
+            # "repository": "${{ env.TARGET_REPOSITORY }}",
+            # "controller_pull_request": "${{ inputs.controller-pull-request }}",
+            # "pull_request": "${{ env.TARGET_PULL_REQUEST }}",
+            # "git_sha": "${{ inputs.target-git-sha }}",
+            # "best_effort": ${{ inputs.closing-pr == 'true' }}
+          # }
