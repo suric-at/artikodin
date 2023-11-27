@@ -140,12 +140,7 @@ runs:
           --controller-private-key "$ARTIKODIN_CONTROLLER_PRIVATE_KEY" \
           --contents-app-id "$ARTIKODIN_CONTENTS_APP_ID" \
           --contents-private-key "$ARTIKODIN_CONTENTS_PRIVATE_KEY" \
-          update \
-          ${{ env.BEST_EFFORT }} \
-          ${{ env.TARGET_PULL_REQUEST }} \
-          ${{ env.TARGET_GIT_SHA }} \
-          ${{ env.CONTROLLER_PULL_REQUEST }} \
-          --repository "${{ env.TARGET_REPOSITORY }}"
+          update ${{ env.BEST_EFFORT }} ${{ env.TARGET_PULL_REQUEST }} ${{ env.TARGET_GIT_SHA }} ${{ env.CONTROLLER_PULL_REQUEST }} --repository "${{ env.TARGET_REPOSITORY }}"
 
     # - name: Create application token for the action repository
       # uses: actions/create-github-app-token@v1
