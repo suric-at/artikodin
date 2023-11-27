@@ -5,7 +5,6 @@ on:
   issue_comment:
     types:
       - created
-      - edited # TODO: remove
 
 
 concurrency:
@@ -35,9 +34,11 @@ jobs:
       - name: Synchronize authorization
         uses: suric-at/artikodin/request@main
         with:
-          app-id: ${{ secrets.ARTIKODIN_CONTENTS_APP_ID }}
-          private-key: ${{ secrets.ARTIKODIN_CONTENTS_PRIVATE_KEY }}
+          contents-app-id: ${{ secrets.ARTIKODIN_CONTENTS_APP_ID }}
+          contents-private-key: ${{ secrets.ARTIKODIN_CONTENTS_PRIVATE_KEY }}
+          controller-app-id: ${{ secrets.ARTIKODIN_CONTROLLER_APP_ID }}
+          controller-private-key: ${{ secrets.ARTIKODIN_CONTROLLER_PRIVATE_KEY }}
           request-exception: true
-          controller-pull-request: "${{ github.event.issue.number }}"
+          exception-pull-request: "${{ github.event.issue.number }}"
           closing-pr: false
 

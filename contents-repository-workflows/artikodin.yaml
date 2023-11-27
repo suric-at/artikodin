@@ -1,4 +1,4 @@
-name: Artikodin Sync
+name: Artikodin pull-request handler
 
 
 on:
@@ -23,8 +23,8 @@ concurrency:
 
 
 jobs:
-  synchronize-authorization:
-    name: Synchronize authorization
+  handle_pr:
+    name: Handle pull request
 
     runs-on: ubuntu-latest
 
@@ -32,7 +32,12 @@ jobs:
       - name: Synchronize authorization
         uses: suric-at/artikodin/request@main
         with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.PRIVATE_KEY }}
+          contents-app-id: ${{ secrets.ARTIKODIN_CONTENTS_APP_ID }}
+          contents-private-key: ${{ secrets.ARTIKODIN_CONTENTS_PRIVATE_KEY }}
+          controller-app-id: ${{ secrets.ARTIKODIN_CONTROLLER_APP_ID }}
+          controller-private-key: ${{ secrets.ARTIKODIN_CONTROLLER_PRIVATE_KEY }}
+          target-repository: "${{ github.repository }}"
+          target-pull-request: "${{ github.event.pull_request.number }}"
+          target-git-sha: "${{ github.event.pull_request.head.sha }}"
           closing-pr: ${{ github.event.action == 'closed' }}
 
