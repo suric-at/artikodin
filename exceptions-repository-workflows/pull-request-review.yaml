@@ -1,0 +1,35 @@
+name: Artikodin pull-request review handler
+
+
+on:
+  pull_request_review:
+    types:
+      - submitted
+      - edited
+      - dismissed
+    branches:
+      - "exception-request/*"
+
+
+concurrency:
+  group: ${{ github.workflow }}-review-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  handle_review:
+    name: Handle pull request review
+
+    runs-on: ubuntu-latest
+
+    if: ${{ github.event.pull_request.base.ref == 'exceptions' }}
+
+    steps:
+      - name: Synchronize authorization
+        uses: suric-at/artikodin/request@main
+        with:
+          app-id: ${{ secrets.ARTIKODIN_CONTENTS_APP_ID }}
+          private-key: ${{ secrets.ARTIKODIN_CONTENTS_PRIVATE_KEY }}
+          target-from-head-ref: ${{ github.event.pull_request.head.ref }}
+          closing-pr: false
+

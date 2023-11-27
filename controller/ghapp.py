@@ -1,6 +1,27 @@
 import github
 import logging
+from contextlib import contextmanager
 from github import Github, GithubIntegration, Auth
+
+
+@contextmanager
+def github_apps(ctrl_args, contents_args):
+    if ctrl_args == contents_args:
+        with github_app_auth(ctrl_args.app_id, ctrl_args.private_key) as gh:
+            yield gh, gh
+    else:
+        with github_app_auth(ctrl_args.app_id, ctrl_args.private_key) as gh_ctrl:
+            with github_app_auth(contents_args.app_id, contents_args.private_key) as gh_contents:
+                yield gh_ctrl, gh_contents
+
+
+@contextmanager
+def github_app_auth(*args, **kwargs):
+    gh = GithubApp(*args, **kwargs)
+    try:
+        yield gh
+    finally:
+        gh.revoke()
 
 
 class GithubApp(object):

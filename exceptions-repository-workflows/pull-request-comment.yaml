@@ -1,0 +1,43 @@
+name: Artikodin pull-request comment handler
+
+
+on:
+  issue_comment:
+    types:
+      - created
+      - edited # TODO: remove
+
+
+concurrency:
+  group: ${{ github.workflow }}-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+
+jobs:
+  handle_comment:
+    name: Handle pull request comment
+
+    runs-on: ubuntu-latest
+
+    # This is hardcoded to avoid spending process time going through
+    # the controller run if it is not necessary
+    if: |
+      github.event.issue.pull_request &&
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'exceptions') &&
+      contains(github.event.issue.labels.*.name, 'pending') &&
+      (github.event.comment.body == '/exception' ||
+       startsWith(github.event.comment.body, '/exception ') ||
+       startsWith(toJson(github.event.comment.body), '"/exception\n') ||
+       startsWith(toJson(github.event.comment.body), '"/exception\r\n'))
+
+    steps:
+      - name: Synchronize authorization
+        uses: suric-at/artikodin/request@main
+        with:
+          app-id: ${{ secrets.ARTIKODIN_CONTENTS_APP_ID }}
+          private-key: ${{ secrets.ARTIKODIN_CONTENTS_PRIVATE_KEY }}
+          request-exception: true
+          controller-pull-request: "${{ github.event.issue.number }}"
+          closing-pr: false
+

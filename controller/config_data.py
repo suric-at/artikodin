@@ -7,7 +7,7 @@ import yaml
 from const import CONFIG_DIR, SCHEDULES_DIR, TEMPLATES_DIR
 from freeze_window import FreezeWindow
 from repository_list import RepositoryList
-from utils import force_list
+from utils import force_list, has_pattern_matching
 
 
 class ConfigData(object):
@@ -57,6 +57,10 @@ class ConfigData(object):
         if self._controller is None:
             self._controller = self.__get_controller_config()
         return self._controller
+
+    @property
+    def exceptions_repository(self):
+        return self.controller['exceptions']['repository']
 
     @property
     def exceptions_base_branch(self):
@@ -177,6 +181,9 @@ class ConfigData(object):
         validate_str = lambda v: isinstance(v, str)
         validate_nonempty_list = lambda v: isinstance(v, list) and len(v) > 0
 
+        def validate_repository_full_name(value):
+            return isinstance(value, str) and '/' in value and not has_pattern_matching(value)
+
         def validate_branch_name(*formats):
             def branch_validator(value):
                 if not isinstance(value, str):
@@ -207,6 +214,9 @@ class ConfigData(object):
         validators = {
             'exceptions': {
                 '_validate': validate_dict,
+                'repository': {
+                    '_validate': validate_repository_full_name,
+                },
                 'base_branch': {
                     '_validate': validate_branch_name(),
                 },

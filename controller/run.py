@@ -12,7 +12,7 @@ import github
 import logging
 import time
 
-from ghapp import GithubApp
+from ghapp import github_apps
 from repository_list import RepositoryList
 from repository import Repository
 from freeze_window import FreezeWindow
@@ -21,11 +21,12 @@ from utils import format_template
 
 
 class Run(object):
-    def __init__(self, gh, args, cfg=None):
-        self.gh = gh
+    def __init__(self, ctrl_gh, contents_gh, args, cfg=None):
+        self.ctrl_gh = ctrl_gh
+        self.contents_gh = contents_gh
         self.args = args
         self.logger = logging.getLogger('run')
-        self.cfg = cfg or ConfigData(default_org=self.args.controller_repository_owner)
+        self.cfg = cfg or ConfigData(default_org=self.args.exceptions_repository_owner)
 
         self._cached_repo_branches = {}
 
@@ -43,7 +44,7 @@ class Run(object):
     def target_base_branch(self):
         if not self.args.base_branch:
             # Get the target repository
-            target_repo = self.gh.get_repo(self.args.repository, lazy=True)
+            target_repo = self.contents_gh.get_repo(self.args.repository, lazy=True)
 
             # Get the target pull request
             self.logger.info('Getting target pull request %s', self.args.pull_request)
@@ -96,7 +97,7 @@ class Run(object):
         exception_request_title = format_template('exception-request-title.md', template_args)
 
         # Get the controller repository
-        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
+        ctrl_repo = self.ctrl_gh.get_repo(self.args.exceptions_repository, lazy=True)
 
         # Get the exceptions branch
         self.logger.info('Getting exceptions branch %s', self.cfg.exceptions_base_branch)
@@ -193,10 +194,10 @@ class Run(object):
         )
         self.logger.info('Checking if exception request pull request %s exists', exception_request_pr_branch)
 
-        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
+        ctrl_repo = self.ctrl_gh.get_repo(self.args.exceptions_repository, lazy=True)
         exception_request_prs = list(ctrl_repo.get_pulls(
             base=self.cfg.exceptions_base_branch,
-            head=f"{self.args.controller_repository_owner}:{exception_request_pr_branch}",
+            head=f"{self.args.exceptions_repository_owner}:{exception_request_pr_branch}",
             state='open',
         ))
         if len(exception_request_prs) > 1:
@@ -212,7 +213,7 @@ class Run(object):
             }
 
         # Get the target repo
-        target_repo = self.gh.get_repo(self.args.repository, lazy=True)
+        target_repo = self.contents_gh.get_repo(self.args.repository, lazy=True)
 
         # Get the target pull request
         self.logger.info('Getting target pull request %s', self.args.pull_request)
@@ -356,7 +357,7 @@ class Run(object):
 
         # Check if the exception request has the expected labels
         if exception_request_pr_labels != expected_labels:
-            self.logger.info('Exception request %s (#%d) does not have the expected labels', self.args.controller_repository, exception_request_pr.number)
+            self.logger.info('Exception request %s (#%d) does not have the expected labels', self.args.exceptions_repository, exception_request_pr.number)
             self.logger.info('Expected labels: %s', expected_labels)
             self.logger.info('Actual labels: %s', exception_request_pr_labels)
             self.logger.info('Updating exception request %s labels', exception_request_pr_branch)
@@ -374,7 +375,7 @@ class Run(object):
         }
 
     def _push_status(self, allow, freeze_window, pr_status):
-        target_repo = self.gh.get_repo(self.args.repository, lazy=True)
+        target_repo = self.contents_gh.get_repo(self.args.repository, lazy=True)
 
         # Get the commit, either from the input or from the pull request
         if self.args.commit:
@@ -419,7 +420,7 @@ class Run(object):
 
     def _get_or_create_active_windows_root_branch(self):
         # Get the controller repository
-        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
+        ctrl_repo = self.ctrl_gh.get_repo(self.args.exceptions_repository, lazy=True)
 
         # Get the active windows empty root branch
         self.logger.info('Getting %s branch', self.cfg.active_windows_base_branch)
@@ -434,7 +435,7 @@ class Run(object):
         # Get the empty tree
         # Create new root empty commit
         self.logger.info('Creating new (empty) root commit')
-        root_commit_sha = self.gh.create_empty_root_commit(
+        root_commit_sha = self.ctrl_gh.create_empty_root_commit(
             ctrl_repo.full_name,
             'Root commit for the branch to keep track of active freeze windows',
         )
@@ -469,7 +470,7 @@ class Run(object):
             return
 
         # Get the repository
-        target_repo = self.gh.get_repo(repository.handle, lazy=True)
+        target_repo = self.contents_gh.get_repo(repository.handle, lazy=True)
 
         # Get and filter the pull requests
         self.logger.info('Getting pull requests for repository %s', repository.handle)
@@ -520,7 +521,7 @@ class Run(object):
         self.logger.info('Activating %s freeze windows', len(freeze_windows))
 
         # Get the controller repository
-        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
+        ctrl_repo = self.ctrl_gh.get_repo(self.args.exceptions_repository, lazy=True)
 
         # Get the active windows empty root branch
         active_windows_branch = self._get_or_create_active_windows_root_branch()
@@ -564,13 +565,13 @@ class Run(object):
         #  - Optionally, go over all open pull requests that are mergeable and unfreeze them
 
         # Get the controller repository
-        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
+        ctrl_repo = self.ctrl_gh.get_repo(self.args.exceptions_repository, lazy=True)
 
         # Get the exception request branches
         all_branches = self.repo_branches(ctrl_repo)
 
         # We also need to work with the target repository
-        target_repo = self.gh.get_repo(repository.handle, lazy=True)
+        target_repo = self.contents_gh.get_repo(repository.handle, lazy=True)
 
         # Go over the branches and find the ones that match the repository
         for branch in all_branches:
@@ -582,7 +583,7 @@ class Run(object):
             self.logger.info('Getting exception request pull request %s', branch.name)
             exception_request_prs = list(ctrl_repo.get_pulls(
                 base=self.cfg.exceptions_base_branch,
-                head=f"{self.args.controller_repository_owner}:{branch.name}",
+                head=f"{self.args.exceptions_repository_owner}:{branch.name}",
                 state='open',
             ))
             if len(exception_request_prs) > 1:
@@ -712,7 +713,7 @@ class Run(object):
         self.logger.info('Cleaning up %s freeze windows', len(freeze_windows))
 
         # Get the controller repository
-        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
+        ctrl_repo = self.ctrl_gh.get_repo(self.args.exceptions_repository, lazy=True)
 
         # Already unfrozen repositories
         already_unfrozen_repositories = set()
@@ -768,7 +769,7 @@ class Run(object):
 
             for org_name, repositories in orgs_patterns.items():
                 self.logger.info('Getting matching repositories from organization %s', org_name)
-                org = self.gh.get_organization(org_name)
+                org = self.contents_gh.get_organization(org_name, lazy=True)
 
                 for repo in org.get_repos():
                     for repository in repositories:
@@ -898,7 +899,7 @@ class Run(object):
             self.logger.info('  %s', freeze_window)
 
         # Get the controller repository
-        ctrl_repo = self.gh.get_repo(self.args.controller_repository, lazy=True)
+        ctrl_repo = self.ctrl_gh.get_repo(self.args.exceptions_repository, lazy=True)
 
         # Get all branches that match the active freeze windows
         all_branches = self.repo_branches(ctrl_repo)
@@ -979,27 +980,40 @@ def main():
     )
 
     parser.add_argument(
-        '--app-id',
-        required=True,
-        help='The application ID.',
+        '--controller-app-id', '--app-id',
+        help='The controller GitHub application ID.',
+    )
+    parser.add_argument(
+        '--contents-app-id',
+        help='The contents GitHub application ID.',
     )
 
-    private_key = parser.add_mutually_exclusive_group(required=True)
-    private_key.add_argument(
-        '--private-key',
+    controller_private_key = parser.add_mutually_exclusive_group()
+    controller_private_key.add_argument(
+        '--controller-private-key', '--private-key',
         help='The private key.',
     )
-    private_key.add_argument(
-        '--private-key-file',
+    controller_private_key.add_argument(
+        '--controller-private-key-file', '--private-key-file',
         help='The private key file.',
         type=lambda fpath: argparse.FileType('r')(fpath).read(),
-        dest='private_key',
+        dest='controller_private_key',
+    )
+    contents_private_key = parser.add_mutually_exclusive_group()
+    contents_private_key.add_argument(
+        '--contents-private-key',
+        help='The private key.',
+    )
+    contents_private_key.add_argument(
+        '--contents-private-key-file',
+        help='The private key file.',
+        type=lambda fpath: argparse.FileType('r')(fpath).read(),
+        dest='contents_private_key',
     )
 
     parser.add_argument(
-        '--controller-repository',
-        required=True,
-        help='The repository where the controller is located.',
+        '--exceptions-repository', '--controller-repository',
+        help='The repository where the exceptions will be created.',
     )
 
     # Create subcommand 'update'
@@ -1018,9 +1032,9 @@ def main():
         help='Do not fail if the target pull request cannot be found.',
     )
     update_parser.add_argument(
-        '--controller-pull-request',
+        '--exception-pull-request', '--controller-pull-request',
         type=int,
-        help='The pull request number in the controller repository.',
+        help='The pull request number in the exceptions repository.',
     )
     update_parser.add_argument(
         '--head-ref',
@@ -1102,10 +1116,13 @@ def main():
         owner, name = repository.split('/', 1)
         return owner, name
 
-    args.controller_repository_owner, args.controller_repository_name = parse_repository(args.controller_repository)
+    # Load the exceptions repository from the configuration if not specified
+    if not args.exceptions_repository:
+        args.exceptions_repository = ConfigData().exceptions_repository
+        args.exceptions_repository_owner, args.exceptions_repository_name = parse_repository(args.exceptions_repository)
 
     # Check the configuration
-    cfg = ConfigData(default_org=args.controller_repository_owner)
+    cfg = ConfigData(default_org=args.exceptions_repository_owner)
     cfg.check()
 
     # If the operation is 'check-config', we are done
@@ -1122,11 +1139,11 @@ def main():
         # the provided values are valid.
 
         invalid_combinations = (
-            ('controller_pull_request', 'head_ref'),
-            ('controller_pull_request', 'repository'),
-            ('controller_pull_request', 'pull_request'),
-            ('controller_pull_request', 'commit'),
-            ('controller_pull_request', 'base_branch'),
+            ('exception_pull_request', 'head_ref'),
+            ('exception_pull_request', 'repository'),
+            ('exception_pull_request', 'pull_request'),
+            ('exception_pull_request', 'commit'),
+            ('exception_pull_request', 'base_branch'),
             ('head_ref', 'repository'),
             ('head_ref', 'pull_request'),
             ('head_ref', 'commit'),
@@ -1143,7 +1160,7 @@ def main():
             if (getattr(args, c[0]) is None) != (getattr(args, c[1]) is None):
                 raise argparse.ArgumentError(None, "Both --{} and --{} are required if one is specified".format(*c))
 
-        if args.controller_pull_request:
+        if args.exception_pull_request:
             # Handle later
             pass
         elif args.head_ref:
@@ -1158,29 +1175,32 @@ def main():
             raise argparse.ArgumentError(None, "Either --head-ref or --repository and --pull-request are required")
 
     gh = GithubApp(args.app_id, args.private_key)
-    try:
-        if hasattr(args, 'controller_pull_request') and args.controller_pull_request:
+    with github_apps(ctrl_args=(args.controller_app_id, args.controller_private_key),
+                     contents_args=(args.contents_app_id, args.contents_private_key)) \
+            as ctrl_gh, contents_gh:
+
+        if hasattr(args, 'exception_pull_request') and args.exception_pull_request:
             # Get the controller repository
-            ctrl_repo = gh.get_repo(args.controller_repository, lazy=True)
+            ctrl_repo = ctrl_gh.get_repo(args.exceptions_repository, lazy=True)
 
             # Get the pull request
-            ctrl_pr = ctrl_repo.get_pull(args.controller_pull_request)
+            ctrl_pr = ctrl_repo.get_pull(args.exception_pull_request)
 
             # Get the repository and pull request number
             m = cfg.exceptions_branch_regex.match(ctrl_pr.head.ref)
             if not m:
                 raise argparse.ArgumentError(None, "Pull request {} does not seem to be an exception request".format(
-                    args.controller_pull_request))
+                    args.exception_pull_request))
 
             args.repository = m.group('repository')
             args.pull_request = int(m.group('pr_num'))
 
         if hasattr(args, 'repository'):
             args.repository_owner, args.repository_name = parse_repository(
-                args.repository, default_owner=args.controller_repository_owner)
+                args.repository, default_owner=args.exceptions_repository_owner)
 
         # Now that we have the arguments, we can create the run object
-        run = Run(gh, args, cfg=cfg)
+        run = Run(ctrl_gh, contents_gh, args, cfg=cfg)
 
         if args.operation == 'update':
             run.update(best_effort=args.best_effort)
@@ -1191,9 +1211,6 @@ def main():
         else:
             # Should never happen
             raise RuntimeError("Invalid operation: {}".format(operation))
-    finally:
-        # Make sure we revoke the token when we are done using it
-        gh.revoke()
 
 
 if __name__ == '__main__':

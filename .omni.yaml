@@ -10,8 +10,4 @@ commands:
     run: |
       cd controller
       eval "$(omni hook env 2>/dev/null)"
-      ./run.py \
-        --app-id dummy \
-        --private-key dummy \
-        --controller-repository dummy/dummy \
-        check-config
+      ./run.py check-config

@@ -1,5 +1,9 @@
 # Configure the exception requests
 exceptions:
+  # The repository in which the exception requests will be created;
+  # needs to be in the format owner/name
+  repository: suric-at/freeze-exceptions
+
   # Configure the base branch to use when creating an exception
   # request pull request. The base branch needs to at least contain
   # up to date github workflows to handle the pull request reviews.
