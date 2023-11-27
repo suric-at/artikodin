@@ -66,8 +66,10 @@ runs:
 
     - name: Checkout controller repository
       uses: actions/checkout@v4
+      env:
+        ACTION_REPOSITORY: ${{ github.action_repository }}
       with:
-        repository: ${{ github.action_repository }}
+        repository: ${{ env.ACTION_REPOSITORY }}
         ref: main
 
     - name: Setup python
