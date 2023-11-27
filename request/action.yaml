@@ -125,13 +125,13 @@ runs:
         ARTIKODIN_CONTENTS_PRIVATE_KEY: ${{ inputs.contents-private-key }}
         TARGET_REPOSITORY: ${{ github.event.client_payload.repository || inputs.repository }}
         TARGET_PULL_REQUEST: |
-          ${{ inputs.target-pull-request != "" &&
+          ${{ inputs.target-pull-request != '' &&
               format('--pull-request {0}', inputs.target-pull-request) || '' }}
         TARGET_GIT_SHA: |
-          ${{ inputs.target-git-sha != "" &&
+          ${{ inputs.target-git-sha != '' &&
               format('--commit {0}', inputs.target-git-sha) || '' }}
         CONTROLLER_PULL_REQUEST: |
-          ${{ inputs.controller-pull-request != "" &&
+          ${{ inputs.controller-pull-request != '' &&
               format('--controller-pull-request {0}', inputs.controller-pull-request) || '' }}
         BEST_EFFORT: ${{ inputs.closing-pr == 'true' && '--best-effort' || '' }}
       run: |
