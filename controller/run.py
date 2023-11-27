@@ -1177,7 +1177,7 @@ def main():
 
     with github_apps(ctrl_args=(args.controller_app_id, args.controller_private_key),
                      contents_args=(args.contents_app_id, args.contents_private_key)) \
-            as ctrl_gh, contents_gh:
+            as (ctrl_gh, contents_gh):
 
         if hasattr(args, 'exception_pull_request') and args.exception_pull_request:
             # Get the controller repository
