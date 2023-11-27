@@ -1175,7 +1175,6 @@ def main():
         elif not args.repository or not args.pull_request:
             raise argparse.ArgumentError(None, "Either --head-ref, --exception-pull-request or both --repository and --pull-request are required")
 
-    gh = GithubApp(args.app_id, args.private_key)
     with github_apps(ctrl_args=(args.controller_app_id, args.controller_private_key),
                      contents_args=(args.contents_app_id, args.contents_private_key)) \
             as ctrl_gh, contents_gh:
