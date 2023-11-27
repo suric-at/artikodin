@@ -1158,7 +1158,8 @@ def main():
         )
         for c in required_combinations:
             if (getattr(args, c[0]) is None) != (getattr(args, c[1]) is None):
-                raise argparse.ArgumentError(None, "Both --{} and --{} are required if one is specified".format([cc.replace('_', '-') for cc in c]))
+                raise argparse.ArgumentError(None, "Both --{} and --{} are required if one is specified".format(
+                    *[cc.replace('_', '-') for cc in c]))
 
         if args.exception_pull_request:
             # Handle later
