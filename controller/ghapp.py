@@ -27,7 +27,7 @@ def github_app_auth(*args, **kwargs):
 class GithubApp(object):
     def __init__(self, app_id, private_key, context=None):
         self.logger = logging.getLogger('github-app')
-        self.logger.info('Creating GithubApp object{}'.format('({})'.format(context) if context else ''))
+        self.logger.info('Creating GithubApp object{}'.format(' ({})'.format(context) if context else ''))
         self._context = context
 
         ghauth = Auth.AppAuth(app_id, private_key)
