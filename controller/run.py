@@ -1031,6 +1031,34 @@ def main():
         required=True,
     )
 
+    def add_ref_args(parser):
+        parser.add_argument(
+            '--exception-pull-request', '--controller-pull-request',
+            type=int,
+            help='The pull request number in the exceptions repository.',
+        )
+        parser.add_argument(
+            '--head-ref',
+            help='The head ref of the exception request pull request.',
+        )
+        parser.add_argument(
+            '--repository',
+            help='The repository to check.',
+        )
+        parser.add_argument(
+            '--pull-request',
+            type=int,
+            help='The pull request to check.',
+        )
+        parser.add_argument(
+            '--base_branch',
+            help='The base branch of the target pull request.',
+        )
+        parser.add_argument(
+            '--commit',
+            help='The commit to check.',
+        )
+
     update_parser = subparsers.add_parser(
         'update',
         help='Update the status of the pull request.',
@@ -1040,32 +1068,7 @@ def main():
         action='store_true',
         help='Do not fail if the target pull request cannot be found.',
     )
-    update_parser.add_argument(
-        '--exception-pull-request', '--controller-pull-request',
-        type=int,
-        help='The pull request number in the exceptions repository.',
-    )
-    update_parser.add_argument(
-        '--head-ref',
-        help='The head ref of the exception request pull request.',
-    )
-    update_parser.add_argument(
-        '--repository',
-        help='The repository to check.',
-    )
-    update_parser.add_argument(
-        '--pull-request',
-        type=int,
-        help='The pull request to check.',
-    )
-    update_parser.add_argument(
-        '--base_branch',
-        help='The base branch of the target pull request.',
-    )
-    update_parser.add_argument(
-        '--commit',
-        help='The commit to check.',
-    )
+    add_ref_args(update_parser)
 
     # Create subcommand 'cron'
     cron_parser = subparsers.add_parser(
@@ -1078,32 +1081,7 @@ def main():
         'request',
         help='Move a pending exception request into requested mode.',
     )
-    request_parser.add_argument(
-        '--controller-pull-request',
-        type=int,
-        help='The pull request number in the controller repository.',
-    )
-    request_parser.add_argument(
-        '--head-ref',
-        help='The head ref of the exception request pull request.',
-    )
-    request_parser.add_argument(
-        '--repository',
-        help='The repository to check.',
-    )
-    request_parser.add_argument(
-        '--pull-request',
-        type=int,
-        help='The pull request to check.',
-    )
-    request_parser.add_argument(
-        '--base_branch',
-        help='The base branch of the target pull request.',
-    )
-    request_parser.add_argument(
-        '--commit',
-        help='The commit to check.',
-    )
+    add_ref_args(request_parser)
 
     # Create subcommand 'check-config'
     subparsers.add_parser(
