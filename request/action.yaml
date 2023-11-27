@@ -105,7 +105,7 @@ runs:
       with:
         token: ${{ steps.action-app-token.outputs.token }}
         repository: ${{ env.ACTION_REPOSITORY }}
-        event-type: ${{ inputs.request-exception && 'request-exception' || 'sync' }}
+        event-type: ${{ inputs.request-exception == 'true' && 'request-exception' || 'sync' }}
         client-payload: |
           {
             "repository": "${{ env.TARGET_REPOSITORY }}",
