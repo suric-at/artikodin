@@ -48,9 +48,5 @@ jobs:
 
       - name: Run configuration check
         run: |
-          ./controller/run.py \
-            --app-id "dummy" \
-            --private-key "dummy" \
-            --controller-repository "${{ github.repository }}" \
-            check-config
+          ./controller/run.py check-config
 

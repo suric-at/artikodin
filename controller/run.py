@@ -1106,7 +1106,7 @@ def main():
     # Load the exceptions repository from the configuration if not specified
     if not args.exceptions_repository:
         args.exceptions_repository = ConfigData().exceptions_repository
-        args.exceptions_repository_owner, args.exceptions_repository_name = parse_repository(args.exceptions_repository)
+    args.exceptions_repository_owner, args.exceptions_repository_name = parse_repository(args.exceptions_repository)
 
     # Check the configuration
     cfg = ConfigData(default_org=args.exceptions_repository_owner)
