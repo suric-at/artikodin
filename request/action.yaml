@@ -1,5 +1,5 @@
-name: 'Request authorization'
-description: 'Request authorization to merge'
+name: 'Triggering Artikodin Controller'
+description: 'Triggering the Artikodin controller to update pull request status'
 
 
 inputs:
@@ -10,6 +10,26 @@ inputs:
   private-key:
     description: "GitHub app private key"
     required: true
+
+  target-from-head-ref:
+    description: "Parse the specified head ref to get the repository and pull request number"
+
+  target-repository:
+    description: "The target repository"
+
+  controller-pull-request:
+    description: "The number of the exception request pull request for which to request the exception"
+
+  target-pull-request:
+    description: "The number of the pull request for which to request the exception (contents repository)"
+
+  target-git-sha:
+    description: "The sha of the commit to update the status for"
+
+  request-exception:
+    description: "Request an exception for merge"
+    type: boolean
+    default: false
 
   closing-pr:
     description: "Set to true when pull requests are getting closed"
@@ -23,18 +43,27 @@ runs:
     - name: Split repository owners and names
       shell: bash
       env:
-        REPOSITORY: ${{ github.repository }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
       run: |
-        REPOSITORY_OWNER="${REPOSITORY%%/*}"
-        REPOSITORY_NAME="${REPOSITORY#*/}"
-
-        ACTION_REPOSITORY_OWNER="${ACTION_REPOSITORY%%/*}"
-        ACTION_REPOSITORY_NAME="${ACTION_REPOSITORY#*/}"
+        HEAD_REF="${{ inputs.target-from-head-ref }}"
+        if [[ "HEAD_REF" =~ ([^/]*)/([^/]*)/([0-9]*)$ ]]; then
+          TARGET_REPOSITORY_OWNER=${BASH_REMATCH[1]}
+          TARGET_REPOSITORY_NAME=${BASH_REMATCH[2]}
+          TARGET_REPOSITORY="${TARGET_REPOSITORY_OWNER}/${TARGET_REPOSITORY_NAME}"
+          TARGET_PULL_REQUEST=${BASH_REMATCH[3]}
+        else
+          TARGET_REPOSITORY="${{ inputs.target-repository || github.repository }}"
+          TARGET_REPOSITORY_OWNER="${TARGET_REPOSITORY%%/*}"
+          TARGET_REPOSITORY_NAME="${TARGET_REPOSITORY#*/}"
+          TARGET_PULL_REQUEST="${{ inputs.target-pull-request }}"
+        fi
 
         echo "REPOSITORY=$REPOSITORY" | tee -a "$GITHUB_ENV"
         echo "REPOSITORY_OWNER=$REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
         echo "REPOSITORY_NAME=$REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
+
+        ACTION_REPOSITORY_OWNER="${ACTION_REPOSITORY%%/*}"
+        ACTION_REPOSITORY_NAME="${ACTION_REPOSITORY#*/}"
 
         echo "ACTION_REPOSITORY=$ACTION_REPOSITORY" | tee -a "$GITHUB_ENV"
         echo "ACTION_REPOSITORY_OWNER=$ACTION_REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
@@ -47,8 +76,8 @@ runs:
       with:
         app-id: ${{ inputs.app-id }}
         private-key: ${{ inputs.private-key }}
-        owner: ${{ env.REPOSITORY_OWNER }}
-        repositories: ${{ env.REPOSITORY_NAME }}
+        owner: ${{ env.TARGET_REPOSITORY_OWNER }}
+        repositories: ${{ env.TARGET_REPOSITORY_NAME }}
 
     - name: Set status as pending
       if: ${{ inputs.closing-pr != 'true' }}
@@ -76,11 +105,12 @@ runs:
       with:
         token: ${{ steps.action-app-token.outputs.token }}
         repository: ${{ env.ACTION_REPOSITORY }}
-        event-type: request
+        event-type: ${{ inputs.request-exception && 'request-exception' || 'sync' }}
         client-payload: |
           {
-            "repository": "${{ env.REPOSITORY }}",
-            "pull_request": "${{ github.event.pull_request.number }}",
-            "git_sha": "${{ github.event.pull_request.head.sha }}",
+            "repository": "${{ env.TARGET_REPOSITORY }}",
+            "controller_pull_request": "${{ inputs.controller-pull-request }}",
+            "pull_request": "${{ env.TARGET_PULL_REQUEST }}",
+            "git_sha": "${{ inputs.target-git-sha }}",
             "best_effort": ${{ inputs.closing-pr == 'true' }}
           }

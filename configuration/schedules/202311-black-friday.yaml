@@ -2,3 +2,6 @@ id: 1FB7B8D7-5177-49B3-8A48-0D51252DF6C5
 reason: Black Friday 2023
 from: 2023-11-21T00:01:00-08:00
 to: 2023-11-28T23:59:00-08:00
+approvers:
+  - handle: xaf
+    reviewer: true
