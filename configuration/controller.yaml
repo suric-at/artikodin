@@ -7,7 +7,7 @@ exceptions:
   # Configure the base branch to use when creating an exception
   # request pull request. The base branch needs to at least contain
   # up to date github workflows to handle the pull request reviews.
-  base_branch: exceptions
+  base_branch: main
 
   # Configure the format that the exception request branches will
   # take. This needs to contain {repository} and {pr_num} in order
