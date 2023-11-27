@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import re
+from datetime import datetime
 
 from utils import force_list, clean_approvers
 from repository_list import RepositoryList
@@ -12,6 +13,18 @@ class FreezeWindow(object):
         # Skip if there is no from or no to
         if 'from' not in yaml_data or 'to' not in yaml_data:
             raise RuntimeError("window definition does not have 'from' or 'to'")
+
+        # Check that 'from' and 'to' have been loaded properly as datetime objects
+        # with timezone information; error out if object is str or any other type than
+        # datetime
+        if not isinstance(yaml_data['from'], datetime):
+            raise RuntimeError("window definition parameter 'from' is not a datetime object")
+        if not isinstance(yaml_data['to'], datetime):
+            raise RuntimeError("window definition parameter 'to' is not a datetime object")
+        if not yaml_data['from'].tzinfo:
+            raise RuntimeError("window definition parameter 'from' does not have timezone information")
+        if not yaml_data['to'].tzinfo:
+            raise RuntimeError("window definition parameter 'to' does not have timezone information")
 
         self.logger = logging.getLogger('freeze-window')
 

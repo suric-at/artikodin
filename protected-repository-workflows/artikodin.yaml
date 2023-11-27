@@ -1,4 +1,4 @@
-name: Synchronize Authorization
+name: Artikodin Sync
 
 
 on:
@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Synchronize authorization
-        uses: suric-at/frozengoods/request@main
+        uses: suric-at/artikodin/request@main
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.PRIVATE_KEY }}
