@@ -112,10 +112,12 @@ runs:
         cache: 'pip'
 
     - name: Install dependencies
+      shell: bash
       run: |
         pip install -r controller/requirements.txt
 
     - name: Run update script
+      shell: bash
       env:
         ARTIKODIN_CONTROLLER_APP_ID: ${{ secrets.ARTIKODIN_CONTROLLER_APP_ID }}
         ARTIKODIN_CONTROLLER_PRIVATE_KEY: ${{ secrets.ARTIKODIN_CONTROLLER_PRIVATE_KEY }}
