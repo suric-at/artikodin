@@ -394,7 +394,7 @@ class Run(object):
         if allow is None:
             state = 'pending'
             description = 'Checking if the repository is frozen'
-        else if not allow and not pr_status.get('exists'):
+        elif not allow and not pr_status.get('exists'):
             state = 'failure'
             description = 'Error creating exception request pull request'
         elif allow and not freeze_window:
