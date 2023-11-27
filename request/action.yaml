@@ -25,7 +25,7 @@ inputs:
   target-repository:
     description: "The target repository"
 
-  controller-pull-request:
+  exception-pull-request:
     description: "The number of the exception request pull request for which to request the exception"
 
   target-pull-request:
@@ -48,10 +48,8 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Split repository owners and names
+    - name: Prepare inputs
       shell: bash
-      env:
-        ACTION_REPOSITORY: ${{ github.action_repository }}
       run: |
         HEAD_REF="${{ inputs.target-from-head-ref }}"
         if [[ "$HEAD_REF" =~ ([^/]*)/([^/]*)/([0-9]*)$ ]]; then
@@ -61,48 +59,15 @@ runs:
           TARGET_PULL_REQUEST=${BASH_REMATCH[3]}
         else
           TARGET_REPOSITORY="${{ inputs.target-repository || github.repository }}"
-          TARGET_REPOSITORY_OWNER="${TARGET_REPOSITORY%%/*}"
-          TARGET_REPOSITORY_NAME="${TARGET_REPOSITORY#*/}"
           TARGET_PULL_REQUEST="${{ inputs.target-pull-request }}"
         fi
-
-        echo "REPOSITORY=$REPOSITORY" | tee -a "$GITHUB_ENV"
-        echo "REPOSITORY_OWNER=$REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
-        echo "REPOSITORY_NAME=$REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
-
-        ACTION_REPOSITORY_OWNER="${ACTION_REPOSITORY%%/*}"
-        ACTION_REPOSITORY_NAME="${ACTION_REPOSITORY#*/}"
-
-        echo "ACTION_REPOSITORY=$ACTION_REPOSITORY" | tee -a "$GITHUB_ENV"
-        echo "ACTION_REPOSITORY_OWNER=$ACTION_REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
-        echo "ACTION_REPOSITORY_NAME=$ACTION_REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
-
-    - name: Create application token for current repository
-      if: ${{ inputs.closing-pr != 'true' }}
-      uses: actions/create-github-app-token@v1
-      id: current-app-token
-      with:
-        app-id: ${{ inputs.contents-app-id }}
-        private-key: ${{ inputs.contents-private-key }}
-        owner: ${{ env.TARGET_REPOSITORY_OWNER }}
-        repositories: ${{ env.TARGET_REPOSITORY_NAME }}
-
-    - name: Set status as pending
-      if: ${{ inputs.closing-pr != 'true' }}
-      uses: ouzi-dev/commit-status-updater@v2
-      env:
-        # Hardcoded for simplicity
-        STATUS_NAME: freeze
-      with:
-        token: ${{ steps.current-app-token.outputs.token }}
-        name: ${{ env.STATUS_NAME }}
-        status: "pending"
-        description: "Requesting authorization"
+        echo "TARGET_REPOSITORY=$TARGET_REPOSITORY" | tee -a "$GITHUB_ENV"
+        echo "TARGET_PULL_REQUEST=$TARGET_PULL_REQUEST" | tee -a "$GITHUB_ENV"
 
     - name: Checkout controller repository
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.ACTION_REPOSITORY }}
+        repository: ${{ github.action_repository }}
         ref: main
 
     - name: Setup python
@@ -123,10 +88,8 @@ runs:
         ARTIKODIN_CONTROLLER_PRIVATE_KEY: ${{ inputs.controller-private-key }}
         ARTIKODIN_CONTENTS_APP_ID: ${{ inputs.contents-app-id }}
         ARTIKODIN_CONTENTS_PRIVATE_KEY: ${{ inputs.contents-private-key }}
-        TARGET_REPOSITORY: ${{ inputs.target-repository || github.repository }}
-        TARGET_PULL_REQUEST: ${{ inputs.target-pull-request }}
         TARGET_GIT_SHA: ${{ inputs.target-git-sha }}
-        EXCEPTION_PULL_REQUEST: ${{ inputs.controller-pull-request }}
+        EXCEPTION_PULL_REQUEST: ${{ inputs.exception-pull-request }}
         VERB: ${{ inputs.request-exception == 'true' && 'request' || 'update' }}
         BEST_EFFORT: ${{ inputs.request-exception == 'false' && inputs.closing-pr == 'true' && '--best-effort' || '' }}
       run: |

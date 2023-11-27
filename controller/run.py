@@ -374,8 +374,9 @@ class Run(object):
             'url': exception_request_pr.html_url,
         }
 
-    def _push_status(self, allow, freeze_window, pr_status):
+    def _push_status(self, allow, freeze_window=None, pr_status=None):
         target_repo = self.contents_gh.get_repo(self.args.repository, lazy=True)
+        pr_status = pr_status or {}
 
         # Get the commit, either from the input or from the pull request
         if self.args.commit:
@@ -386,10 +387,14 @@ class Run(object):
             pr = target_repo.get_pull(self.args.pull_request)
 
             self.logger.info('Getting commit %s (head of pull request)', pr.head.sha)
+            self.args.commit = pr.head.sha  # Saved for subsequent calls
             commit = target_repo.get_commit(pr.head.sha)
 
         # Prepare the status description
-        if not allow and not pr_status.get('exists'):
+        if allow is None:
+            state = 'pending'
+            description = 'Checking if the repository is frozen'
+        else if not allow and not pr_status.get('exists'):
             state = 'failure'
             description = 'Error creating exception request pull request'
         elif allow and not freeze_window:
@@ -823,6 +828,10 @@ class Run(object):
         return new_frozen_repositories, new_unfrozen_repositories
 
     def update(self, move_to_requested=False, best_effort=False):
+        # Set the status to pending
+        self._push_status(None)
+
+        # Prepare variables we need
         allow = True
         pr_status = {}
 
