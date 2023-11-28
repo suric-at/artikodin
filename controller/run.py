@@ -254,13 +254,13 @@ class Run(object):
                              exception_request_pr_branch)
 
             # Commenting on the exception request pull request
-            template_args.update({
+            template_args = {
                 'target_pr_repository': self.args.repository,
                 'target_pr_num': self.args.pull_request,
                 'target_pr_status': target_pr.merged and 'merged' or 'closed',
                 'target_pr_url': target_pr.html_url,
                 'exception_request_pr_url': exception_request_pr.html_url,
-            })
+            }
             exception_request_comment = format_template(
                 'exception-request-comment-target-closed.md', template_args)
             exception_request_pr.create_issue_comment(exception_request_comment)
@@ -604,9 +604,9 @@ class Run(object):
                 exception_request_pr = exception_request_prs[0]
 
                 # Comment on the pull request to indicate that no freeze window applies anymore
-                template_args.update({
+                template_args = {
                     'exception_request_pr_url': exception_request_pr.html_url,
-                })
+                }
                 exception_request_comment = format_template(
                     'exception-request-comment-thaw.md', template_args)
                 self.logger.info('Commenting on exception request pull request %s', branch.name)
@@ -677,11 +677,11 @@ class Run(object):
             )
 
             # Post a comment on the pull request to indicate that it was thawed
-            template_args.update({
+            template_args = {
                 'target_pr_repository': repository.handle,
                 'target_pr_num': target_pr.number,
                 'target_pr_url': target_pr.html_url,
-            })
+            }
             target_pull_request_comment = format_template(
                 'target-pull-request-comment-thaw.md', template_args)
             self.logger.info('Commenting on pull request %s', target_pr.number)
