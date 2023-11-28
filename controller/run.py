@@ -618,7 +618,16 @@ class Run(object):
                 self.logger.info('Branch %s does not exist; ignoring', branch.name)
 
             self.logger.info('Getting target pull request %s', m.group('pr_num'))
-            target_pr = target_repo.get_pull(int(m.group('pr_num')))
+
+            try:
+                target_pr = target_repo.get_pull(int(m.group('pr_num')))
+            except github.GithubException as e:
+                if e.status != 404:
+                    raise
+
+                self.logger.info('Target pull request %s #%s does not exist; ignoring',
+                                 repository.handle, m.group('pr_num'))
+                continue
 
             # Check if the pull request is still open
             if target_pr.state != 'open':
@@ -683,33 +692,39 @@ class Run(object):
         if repository.branches is not None and len(repository.branches) == 1:
             get_pulls_kwargs['base'] = list(repository.branches)[0]
 
-        # Now get the pull requests
-        for pr in target_repo.get_pulls(**get_pulls_kwargs):
-            # Check if the pull request is older than the max age
-            if (datetime.datetime.now(datetime.timezone.utc) - pr.updated_at).days > max_age_days:
-                break
+        try:
+            # Now get the pull requests
+            for pr in target_repo.get_pulls(**get_pulls_kwargs):
+                # Check if the pull request is older than the max age
+                if (datetime.datetime.now(datetime.timezone.utc) - pr.updated_at).days > max_age_days:
+                    break
 
-            # If not mergeable, nothing to do because it will need to
-            # be updated anyway, so might as well avoid the noise and
-            # extra API calls for now
-            if not pr.mergeable:
-                continue
+                # If not mergeable, nothing to do because it will need to
+                # be updated anyway, so might as well avoid the noise and
+                # extra API calls for now
+                if not pr.mergeable:
+                    continue
 
-            # If not matching a branch we care about, nothing to do
-            if repository.branches is not None and pr.base.ref.lower() not in repository.branches:
-                continue
+                # If not matching a branch we care about, nothing to do
+                if repository.branches is not None and pr.base.ref.lower() not in repository.branches:
+                    continue
 
-            # Get the commit
-            self.logger.info('Getting commit %s', pr.head.sha)
-            commit = target_repo.get_commit(pr.head.sha)
+                # Get the commit
+                self.logger.info('Getting commit %s', pr.head.sha)
+                commit = target_repo.get_commit(pr.head.sha)
 
-            # Unfreeze the pull request
-            self.logger.info('Unfreezing pull request %s #%s', repository.handle, pr.number)
-            commit.create_status(
-                state='success',
-                description='The repository is not frozen',
-                context=self.cfg.commit_status_context,
-            )
+                # Unfreeze the pull request
+                self.logger.info('Unfreezing pull request %s #%s', repository.handle, pr.number)
+                commit.create_status(
+                    state='success',
+                    description='The repository is not frozen',
+                    context=self.cfg.commit_status_context,
+                )
+        except github.GithubException as e:
+            if e.status != 404:
+                raise
+
+            self.logger.info('Repository %s does not exist; ignoring', repository.handle)
 
     def _cleanup_freeze_windows(self, freeze_windows, affected_repositories):
         if not freeze_windows:
@@ -917,9 +932,16 @@ class Run(object):
         freeze_windows_to_activate = {k: v for k, v in active_freeze_windows.items()}
         freeze_windows_to_cleanup = {}
         already_active_freeze_windows = {}
+        active_exception_requests = set()
         for branch in all_branches:
             m = self.cfg.active_windows_branch_regex.match(branch.name)
             if not m:
+                # Check if this is an exception request branch, in which
+                # case we can store it so we can cleanup all exception
+                # requests that are not needed anymore
+                m = self.cfg.exceptions_branch_regex.match(branch.name)
+                if m:
+                    active_exception_requests.add((m.group('repository'), m.group('pr_num')))
                 continue
 
             # Get the freeze window ID
@@ -950,6 +972,22 @@ class Run(object):
             self.logger.warning("Freeze window %s is active and should not be active, but does not exist anymore; removing branch but won't be able to cleanup", freeze_window_id)
             # This is not possible to call .delete() on the branch object directly
             ctrl_repo.get_git_ref(ref=f"heads/{branch.name}").delete()
+
+        # Go over the active exception requests and check if the repository
+        # fits any of the freeze windows, either already active, to activate
+        # or to cleanup; and if not, close the exception request
+        all_windows = (
+            list(freeze_windows_to_activate.values()) +
+            list(freeze_windows_to_cleanup.values()) +
+            list(already_active_freeze_windows.values())
+        )
+        active_exception_requests_repos = set(
+            r for r, _ in active_exception_requests)
+        for repository in active_exception_requests_repos:
+            is_global_repository = self.cfg.global_repositories.matches(repository)
+            if not any(w.matches(repository, is_global_repository)
+                       for w in all_windows):
+                self._unfreeze_repository(Repository(repository))
 
         # If there's no freeze window to activate or cleanup, we are done
         if not freeze_windows_to_activate and not freeze_windows_to_cleanup:
