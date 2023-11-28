@@ -175,7 +175,7 @@ class Run(object):
         template_args.update({
             'exception_request_pr_url': exception_request_pr.html_url,
         })
-        target_pull_request_comment = format_template('target-pull-request-comment.md', template_args)
+        target_pull_request_comment = format_template('target-pull-request-comment-freeze.md', template_args)
         self.logger.info('Commenting on target pull request %s', self.args.pull_request)
         target_pr.create_issue_comment(target_pull_request_comment)
 
@@ -246,18 +246,25 @@ class Run(object):
 
         # Check if the target pull request is still open
         if target_pr.state != 'open':
-            # Close the exception request PR
             self.logger.info('Target pull request %s #%s has been %s; '
                              'closing exception request %s',
                              self.args.repository, self.args.pull_request,
                              target_pr.merged and 'merged' or 'closed',
                              exception_request_pr_branch)
-            exception_request_pr.create_issue_comment(
-                ('The target pull request has been **{}**; '
-                 'closing this exception request').format(
-                    target_pr.merged and 'merged' or 'closed',
-                ),
-            )
+
+            # Commenting on the exception request pull request
+            template_args.update({
+                'target_pr_repository': self.args.repository,
+                'target_pr_num': self.args.pull_request,
+                'target_pr_status': target_pr.merged and 'merged' or 'closed',
+                'target_pr_url': target_pr.html_url,
+                'exception_request_pr_url': exception_request_pr.html_url,
+            })
+            exception_request_comment = format_template(
+                'exception-request-comment-target-closed.md', template_args)
+            exception_request_pr.create_issue_comment(exception_request_comment)
+
+            # Close the exception request PR
             exception_request_pr.edit(state='closed')
 
             if target_pr.merged:
@@ -459,7 +466,7 @@ class Run(object):
     def _freeze_repository(self, repository, max_age_days=None):
         # Get all the pull requests from the repository that:
         # - are open
-        # - are mergeable
+        # - are not draft
         # - are against a branch we care about
 
         # Get the max age from the configuration if not specified
@@ -497,10 +504,8 @@ class Run(object):
             if (datetime.datetime.now(datetime.timezone.utc) - pr.updated_at).days > max_age_days:
                 break
 
-            # If not mergeable, nothing to do because it will need to
-            # be updated anyway, so might as well avoid the noise and
-            # extra API calls for now
-            if not pr.mergeable:
+            # If the PR is a draft, skip it
+            if pr.draft:
                 continue
 
             # If not matching a branch we care about, nothing to do
@@ -567,7 +572,7 @@ class Run(object):
         #    - Get the target repository pull request
         #      - Lift the freeze on the pull request
         #      - Post a comment on the pull request to indicate that it was unfrozen
-        #  - Optionally, go over all open pull requests that are mergeable and unfreeze them
+        #  - Optionally, go over all open pull requests that are not draft and unfreeze them
 
         # Get the controller repository
         ctrl_repo = self.ctrl_gh.get_repo(self.args.exceptions_repository, lazy=True)
@@ -598,10 +603,13 @@ class Run(object):
                 exception_request_pr = exception_request_prs[0]
 
                 # Comment on the pull request to indicate that no freeze window applies anymore
+                template_args.update({
+                    'exception_request_pr_url': exception_request_pr.html_url,
+                })
+                exception_request_comment = format_template(
+                    'exception-request-comment-unfreeze.md', template_args)
                 self.logger.info('Commenting on exception request pull request %s', branch.name)
-                exception_request_pr.create_issue_comment(
-                    "The freeze window that this exception request was created "
-                    "for is no longer active; closing")
+                exception_request_pr.create_issue_comment(exception_request_comment)
 
                 # Close the pull request
                 self.logger.info('Closing exception request pull request %s', branch.name)
@@ -652,7 +660,7 @@ class Run(object):
             commit = target_repo.get_commit(target_pr.head.sha)
 
             # Lift the freeze on the pull request
-            self.logger.info('Lifting freeze on pull request %s', m.group('pr_num'))
+            self.logger.info('Lifting freeze on pull request %s', target_pr.number)
             commit.create_status(
                 state='success',
                 description='The repository is not frozen',
@@ -660,10 +668,15 @@ class Run(object):
             )
 
             # Post a comment on the pull request to indicate that it was unfrozen
-            self.logger.info('Commenting on pull request %s', m.group('pr_num'))
-            target_pr.create_issue_comment(
-                "The freeze on this repository has been lifted; "
-                "this pull request is no longer frozen. 🔥🔥🔥")
+            template_args.update({
+                'target_pr_repository': repository.handle,
+                'target_pr_num': target_pr.number,
+                'target_pr_url': target_pr.html_url,
+            })
+            target_pull_request_comment = format_template(
+                'target-pull-request-comment-unfreeze.md', template_args)
+            self.logger.info('Commenting on pull request %s', target_pr.number)
+            target_pr.create_issue_comment(target_pull_request_comment)
 
         # Get the max age from the configuration if not specified
         if max_age_days is None:
@@ -699,10 +712,8 @@ class Run(object):
                 if (datetime.datetime.now(datetime.timezone.utc) - pr.updated_at).days > max_age_days:
                     break
 
-                # If not mergeable, nothing to do because it will need to
-                # be updated anyway, so might as well avoid the noise and
-                # extra API calls for now
-                if not pr.mergeable:
+                # If the PR is a draft, skip it
+                if pr.draft:
                     continue
 
                 # If not matching a branch we care about, nothing to do
@@ -888,7 +899,7 @@ class Run(object):
         # In both cases, we want to verify if there are any repositories
         # that weren't affected by the freeze window and that now are, in
         # which case we need to go over the open pull requests that are
-        # mergeable for these repositories and add a status to them.
+        # not drafts for these repositories and add a status to them.
         # Note in that first case, we also need to check if any of the
         # repositories listed is using wildcard or pattern matching,
         # in which case we need to list all the repositories that match
