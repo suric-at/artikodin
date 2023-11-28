@@ -1,4 +1,4 @@
-name: Resync handler
+name: Resync
 
 
 on:
@@ -39,13 +39,15 @@ jobs:
 
       - name: Run cron script
         env:
-          REPOSITORY: ${{ github.repository }}
-          APP_ID: ${{ secrets.APP_ID }}
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          ARTIKODIN_CONTROLLER_APP_ID: ${{ secrets.ARTIKODIN_CONTROLLER_APP_ID }}
+          ARTIKODIN_CONTROLLER_PRIVATE_KEY: ${{ secrets.ARTIKODIN_CONTROLLER_PRIVATE_KEY }}
+          ARTIKODIN_CONTENTS_APP_ID: ${{ secrets.ARTIKODIN_CONTENTS_APP_ID }}
+          ARTIKODIN_CONTENTS_PRIVATE_KEY: ${{ secrets.ARTIKODIN_CONTENTS_PRIVATE_KEY }}
         run: |
           ./controller/run.py \
-            --app-id "$APP_ID" \
-            --private-key "$PRIVATE_KEY" \
-            --controller-repository "${{ env.REPOSITORY }}" \
+            --controller-app-id "$ARTIKODIN_CONTROLLER_APP_ID" \
+            --controller-private-key "$ARTIKODIN_CONTROLLER_PRIVATE_KEY" \
+            --contents-app-id "$ARTIKODIN_CONTENTS_APP_ID" \
+            --contents-private-key "$ARTIKODIN_CONTENTS_PRIVATE_KEY" \
             cron
 

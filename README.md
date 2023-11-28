@@ -41,63 +41,45 @@ Artikodin also runs a scheduled workflow to:
 
 ### GitHub App
 
-Artikodin needs a GitHub App with the following access:
+Artikodin can work with two GitHub Apps for split permissions and better security. The two apps require the permissions as follows:
 
-- `Repository permissions`
-  - `Actions`, read and write
-  - `Checks`, read and write
-  - `Commit statuses`, read and write
-  - `Contents`, read and write
-  - `Metadata`, read-only
-  - `Pull requests`, read and write
-- `Organization permissions`
-  - `Members`, read-only
+- **Artikodin controller**
+  - Secrets:
+    - `ARTIKODIN_CONTROLLER_APP_ID` for the GitHub application ID
+    - `ARTIKODIN_CONTROLLER_PRIVATE_KEY` for the GitHub application private key
+  - Scope: exceptions repository only
+  - Repository permissions
+    - `Contents`, read and write
+      - Allows to verify existence, create and delete branches in the controller repository
+    - `Metadata`, read-only
+    - `Pull requests`, read and write
+      - Allows to read the pull requests in the contents repositories
+      - Allows to write pull requests in the controller repository
+
+- **Artikodin protector**
+  - Secrets:
+    - `ARTIKODIN_CONTENTS_APP_ID` for the GitHub application ID
+    - `ARTIKODIN_CONTENTS_PRIVATE_KEY` for the GitHub application private key
+  - Scope: all the repositories you want to protect / global scope
+  - Repository permissions
+    - `Actions`, read and write
+      - Allows to dispatch workflows from the `request` composite workflow
+    - `Commit statuses`, read and write
+      - Allows to update commit status in the contents repositories
+    - `Metadata`, read-only
+    - `Pull requests`, read and write
+      - Allows to read the pull requests in the contents repositories
+      - Allows to write pull requests in the controller repository
+  - Organization permissions
+    - `Members`, read-only
+
+You can, of course, use a single GitHub application with the superset of permissions of the two listed above. This is however slightly more risky as the workflows will be able to write contents in your source code repositories.
 
 ### Protecting a repository
 
-To protect a repository using Artikodin, you just need to add the following workflow in your repository:
+To protect a repository using Artikodin, copy the workflows in `templates/contents-repository-workflows/` into the `.github/workflows/` directory of the repository. You will also want to make the `freeze` status (or as configured in `controller.yaml`) as **required** in the GitHub settings for the repository.
 
-```yaml
-name: Artikodin Sync
-
-
-on:
-  # Runs on a pull request for the main branch
-  pull_request:
-    types:
-      # Default events
-      - opened
-      - synchronize
-      - reopened
-      # But we also want to make sure a potential
-      # exception request pull request is getting
-      # closed if any was open
-      - closed
-    branch:
-      - main
-
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: false
-
-
-jobs:
-  synchronize-authorization:
-    name: Synchronize authorization
-
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Synchronize authorization
-        uses: suric-at/artikodin/request@main
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.PRIVATE_KEY }}
-          closing-pr: ${{ github.event.action == 'closed' }}
-```
-
-You then just need to setup schedules.
+You then just need to setup freeze window schedules.
 
 ### Configuration
 
@@ -106,6 +88,8 @@ To configure Artikodin, you simply need to adjust a few configuration files:
 - `configuration/approvers.yaml` to configure the default approvers, containing a list of `Approver` objects (see below)
 - `configuration/repositories.yaml` to configure the default repositories to consider in freeze windows, containing a list of `Repository` objects (see below)
 - `configuration/schedules/` to configure the freeze windows, with each individual file in that directory (allows for subdirectories) containing a `FreezeWindow` object (see below)
+
+You will also need to setup a repository in which the exception requests will be opened. You need to copy the contents of `template/exceptions-repository-workflows/` into the `.github/workflows/` directory of that repository. This is the repository for which the Artikodin controller will need access.
 
 #### The `Approver` object
 
