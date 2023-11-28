@@ -560,8 +560,8 @@ class Run(object):
                 sha=active_windows_branch.commit.sha,
             )
 
-    def _unfreeze_repository(self, repository, max_age_days=None):
-        # To unfreeze a repository, we need to:
+    def _thaw_repository(self, repository, max_age_days=None):
+        # To thaw a repository, we need to:
         #  - List the controller repository branches that match an exception request
         #    for the repository
         #  - For each of these branches:
@@ -571,8 +571,8 @@ class Run(object):
         #      - Delete the branch
         #    - Get the target repository pull request
         #      - Lift the freeze on the pull request
-        #      - Post a comment on the pull request to indicate that it was unfrozen
-        #  - Optionally, go over all open pull requests that are not draft and unfreeze them
+        #      - Post a comment on the pull request to indicate that it was thawed
+        #  - Optionally, go over all open pull requests that are not draft and thaw them
 
         # Get the controller repository
         ctrl_repo = self.ctrl_gh.get_repo(self.args.exceptions_repository, lazy=True)
@@ -607,13 +607,20 @@ class Run(object):
                     'exception_request_pr_url': exception_request_pr.html_url,
                 })
                 exception_request_comment = format_template(
-                    'exception-request-comment-unfreeze.md', template_args)
+                    'exception-request-comment-thaw.md', template_args)
                 self.logger.info('Commenting on exception request pull request %s', branch.name)
                 exception_request_pr.create_issue_comment(exception_request_comment)
+
+                # Make sure we have the right labels
+                self.logger.info('Adding thawed labels %s to exception request %s',
+                                 self.cfg.labels_thawed, exception_request_pr_branch)
+                exception_request_pr.add_to_labels(*self.cfg.labels_thawed)
 
                 # Close the pull request
                 self.logger.info('Closing exception request pull request %s', branch.name)
                 exception_request_pr.edit(state='closed')
+            else:
+                exception_request_pr = None
 
             # Delete the branch
             try:
@@ -644,14 +651,15 @@ class Run(object):
                         repository.handle, m.group('pr_num'),
                         target_pr.merged and 'merged' or 'closed')
 
-                if target_pr.merged:
-                    self.logger.info('Adding target merged labels %s to exception request %s',
-                                     self.cfg.labels_target_merged, exception_request_pr_branch)
-                    exception_request_pr.add_to_labels(*self.cfg.labels_target_merged)
-                else:
-                    self.logger.info('Adding target closed labels %s to exception request %s',
-                                     self.cfg.labels_target_closed, exception_request_pr_branch)
-                    exception_request_pr.add_to_labels(*self.cfg.labels_target_closed)
+                if exception_request_pr is not None:
+                    if target_pr.merged:
+                        self.logger.info('Adding target merged labels %s to exception request %s',
+                                         self.cfg.labels_target_merged, exception_request_pr_branch)
+                        exception_request_pr.add_to_labels(*self.cfg.labels_target_merged)
+                    else:
+                        self.logger.info('Adding target closed labels %s to exception request %s',
+                                         self.cfg.labels_target_closed, exception_request_pr_branch)
+                        exception_request_pr.add_to_labels(*self.cfg.labels_target_closed)
 
                 continue
 
@@ -667,14 +675,14 @@ class Run(object):
                 context=self.cfg.commit_status_context,
             )
 
-            # Post a comment on the pull request to indicate that it was unfrozen
+            # Post a comment on the pull request to indicate that it was thawed
             template_args.update({
                 'target_pr_repository': repository.handle,
                 'target_pr_num': target_pr.number,
                 'target_pr_url': target_pr.html_url,
             })
             target_pull_request_comment = format_template(
-                'target-pull-request-comment-unfreeze.md', template_args)
+                'target-pull-request-comment-thaw.md', template_args)
             self.logger.info('Commenting on pull request %s', target_pr.number)
             target_pr.create_issue_comment(target_pull_request_comment)
 
@@ -724,8 +732,8 @@ class Run(object):
                 self.logger.info('Getting commit %s', pr.head.sha)
                 commit = target_repo.get_commit(pr.head.sha)
 
-                # Unfreeze the pull request
-                self.logger.info('Unfreezing pull request %s #%s', repository.handle, pr.number)
+                # Thaw the pull request
+                self.logger.info('Thawing pull request %s #%s', repository.handle, pr.number)
                 commit.create_status(
                     state='success',
                     description='The repository is not frozen',
@@ -746,18 +754,18 @@ class Run(object):
         # Get the controller repository
         ctrl_repo = self.ctrl_gh.get_repo(self.args.exceptions_repository, lazy=True)
 
-        # Already unfrozen repositories
-        already_unfrozen_repositories = set()
+        # Already thawed repositories
+        already_thawed_repositories = set()
 
         for freeze_window in freeze_windows:
             # Identify which of the repositories are affected by this freeze window
             repositories = [r for r, windows in affected_repositories.items()
                             if freeze_window.id in windows]
 
-            # Go over the repositories, and unfreeze them
-            self.logger.info('Unfreezing %d repositories', len(repositories))
+            # Go over the repositories, and thaw them
+            self.logger.info('Thawing %d repositories', len(repositories))
             for repository in repositories:
-                self._unfreeze_repository(repository)
+                self._thaw_repository(repository)
                 del affected_repositories[repository]
 
             # Delete the branch
@@ -825,7 +833,7 @@ class Run(object):
 
     def _split_affected_repositories(self, affected_repositories, already_active_freeze_windows, freeze_windows_to_activate, freeze_windows_to_cleanup):
         new_frozen_repositories = {}
-        new_unfrozen_repositories = {}
+        new_thawed_repositories = {}
 
         def select_windows_matching_repo(freeze_windows, repository):
             global_repository = self.cfg.global_repositories.matches(repository)
@@ -845,13 +853,13 @@ class Run(object):
                 new_frozen_repositories[repository] = [w.id for w in new_frozen_windows]
                 continue
 
-            new_unfrozen_windows = list(select_windows_matching_repo(freeze_windows_to_cleanup.values(), repository))
-            if new_unfrozen_windows:
-                self.logger.info('Repository %s needs to be unfrozen 🔥', repository.handle)
-                new_unfrozen_repositories[repository] = [w.id for w in new_unfrozen_windows]
+            new_thawed_windows = list(select_windows_matching_repo(freeze_windows_to_cleanup.values(), repository))
+            if new_thawed_windows:
+                self.logger.info('Repository %s needs to be thawed 🔥', repository.handle)
+                new_thawed_repositories[repository] = [w.id for w in new_thawed_windows]
                 continue
 
-        return new_frozen_repositories, new_unfrozen_repositories
+        return new_frozen_repositories, new_thawed_repositories
 
     def update(self, move_to_requested=False, best_effort=False):
         # Set the status to pending
@@ -998,7 +1006,7 @@ class Run(object):
             is_global_repository = self.cfg.global_repositories.matches(repository)
             if not any(w.matches(repository, is_global_repository)
                        for w in all_windows):
-                self._unfreeze_repository(Repository(repository))
+                self._thaw_repository(Repository(repository))
 
         # If there's no freeze window to activate or cleanup, we are done
         if not freeze_windows_to_activate and not freeze_windows_to_cleanup:
@@ -1012,12 +1020,12 @@ class Run(object):
         self.logger.debug('Affected repositories: %s', affected_repositories)
 
         # Split the affected repositories into those that need to be frozen
-        # and those that need to be unfrozen
-        new_frozen_repositories, new_unfrozen_repositories = self._split_affected_repositories(
+        # and those that need to be thawed
+        new_frozen_repositories, new_thawed_repositories = self._split_affected_repositories(
             affected_repositories, already_active_freeze_windows, freeze_windows_to_activate, freeze_windows_to_cleanup)
 
         self.logger.debug('New frozen repositories: %s', new_frozen_repositories)
-        self.logger.debug('New unfrozen repositories: %s', new_unfrozen_repositories)
+        self.logger.debug('New thawed repositories: %s', new_thawed_repositories)
 
         self.logger.info('Freeze windows to activate: %s', freeze_windows_to_activate)
         self.logger.info('Freeze windows to cleanup: %s', freeze_windows_to_cleanup)
@@ -1027,7 +1035,7 @@ class Run(object):
             self._activate_freeze_windows(freeze_windows_to_activate.values(), new_frozen_repositories)
 
         if freeze_windows_to_cleanup:
-            self._cleanup_freeze_windows(freeze_windows_to_cleanup.values(), new_unfrozen_repositories)
+            self._cleanup_freeze_windows(freeze_windows_to_cleanup.values(), new_thawed_repositories)
 
 
 def main():

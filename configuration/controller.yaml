@@ -44,12 +44,12 @@ windows:
   freeze_max_age_days: 90
 
   # Configure the maximum staleness of a pull request to be
-  # considered to be automatically unfrozen when a freeze window
+  # considered to be automatically thawed when a freeze window
   # gets activated. This is to avoid looking too far ago for
   # large repositories with many open pull requests.
   # Needs to be greater or equal than 0. 0 means no pull request
   # will be frozen when a freeze window gets deactivated.
-  unfreeze_max_age_days: 90
+  thaw_max_age_days: 90
 
 # Configure the labels that will be put on pull requests. All
 # categories need to have at least one label set.
@@ -76,6 +76,10 @@ labels:
   # exception request pull requests.
   rejected:
     - rejected
+  # The thawed label will be put on exception request pull requests
+  # that are closed as not matching any freeze window anymore
+  thawed:
+    - thawed
   # The merged labels will be placed on exception request pull requests
   # when the target pull request has been merged
   target_merged:

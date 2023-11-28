@@ -113,7 +113,7 @@ class ConfigData(object):
 
     @property
     def deactivating_window_pr_max_age_days(self):
-        return self.controller['windows']['unfreeze_max_age_days']
+        return self.controller['windows']['thaw_max_age_days']
 
     @property
     def labels(self):
@@ -140,8 +140,16 @@ class ConfigData(object):
         return self.labels_base | set(self.controller['labels']['rejected'])
 
     @property
+    def labels_thawed(self):
+        return set(self.controller['labels']['thawed'])
+
+    @property
     def labels_target_merged(self):
         return set(self.controller['labels']['target_merged'])
+
+    @property
+    def labels_target_merged_without_approval(self):
+        return set(self.controller['labels']['target_merged_without_approval'])
 
     @property
     def labels_target_closed(self):
@@ -241,7 +249,7 @@ class ConfigData(object):
                 'freeze_max_age_days': {
                     '_validate': lambda v: isinstance(v, int) and v >= 0,
                 },
-                'unfreeze_max_age_days': {
+                'thaw_max_age_days': {
                     '_validate': lambda v: isinstance(v, int) and v >= 0,
                 },
             },
@@ -260,6 +268,9 @@ class ConfigData(object):
                     '_validate': validate_nonempty_list,
                 },
                 'pending': {
+                    '_validate': validate_nonempty_list,
+                },
+                'thawed': {
                     '_validate': validate_nonempty_list,
                 },
                 'target_merged': {
