@@ -50,6 +50,8 @@ runs:
   steps:
     - name: Prepare inputs
       shell: bash
+      env:
+        ACTION_REPOSITORY: ${{ github.action_repository }}
       run: |
         HEAD_REF="${{ inputs.target-from-head-ref }}"
         if [[ "$HEAD_REF" =~ ([^/]*)/([^/]*)/([0-9]*)$ ]]; then
@@ -63,6 +65,29 @@ runs:
         fi
         echo "TARGET_REPOSITORY=$TARGET_REPOSITORY" | tee -a "$GITHUB_ENV"
         echo "TARGET_PULL_REQUEST=$TARGET_PULL_REQUEST" | tee -a "$GITHUB_ENV"
+
+        ACTION_REPOSITORY_OWNER=${ACTION_REPOSITORY%/*}
+        ACTION_REPOSITORY_NAME=${ACTION_REPOSITORY##*/}
+        echo "ACTION_REPOSITORY=$ACTION_REPOSITORY" | tee -a "$GITHUB_ENV"
+        echo "ACTION_REPOSITORY_OWNER=$ACTION_REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
+        echo "ACTION_REPOSITORY_NAME=$ACTION_REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
+
+    # - name: Create GitHub app token to checkout the controller repository
+      # uses: actions/create-github-app-token@v1
+      # id: contents-app-token
+      # with:
+        # app-id: ${{ inputs.contents-app-id }}
+        # private-key: ${{ inputs.contents-private-key }}
+        # owner: ${{ env.ACTION_REPOSITORY_OWNER }}
+        # repositories: ${{ env.ACTION_REPOSITORY_NAME }}
+
+    - name: Checkout controller repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.ACTION_REPOSITORY }}
+        ref: main
+        # token: ${{ steps.contents-app-token.outputs.token }}
+        # persist-credentials: false
 
     - name: Checkout controller repository
       uses: actions/checkout@v4
