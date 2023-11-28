@@ -112,6 +112,7 @@ runs:
         EXCEPTION_PULL_REQUEST: ${{ inputs.exception-pull-request }}
         TARGET_GIT_SHA: ${{ inputs.target-git-sha }}
         TARGET_MERGE_GROUP_HEAD_REF: ${{ inputs.target-merge-group-head-ref }}
+        TARGET_REPOSITORY: ${{ inputs.target-repository || github.repository }}
         VERB: ${{ inputs.request-exception == 'true' && 'request' || 'update' }}
       run: |
         ARGS=()
@@ -120,6 +121,7 @@ runs:
         elif [[ -n "$EXCEPTION_HEAD_REF" ]]; then
           ARGS+=("--exception-head-ref" "$EXCEPTION_HEAD_REF")
         elif [[ -n "$TARGET_MERGE_GROUP_HEAD_REF" ]]; then
+          ARGS+=("--repository" "${{ env.TARGET_REPOSITORY }}")
           ARGS+=("--merge-group-head-ref" "$TARGET_MERGE_GROUP_HEAD_REF")
           [[ -n "$TARGET_GIT_SHA" ]] && ARGS+=("--commit" "$TARGET_GIT_SHA")
         else
