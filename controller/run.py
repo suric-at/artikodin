@@ -614,7 +614,7 @@ class Run(object):
 
                 # Make sure we have the right labels
                 self.logger.info('Adding thawed labels %s to exception request %s',
-                                 self.cfg.labels_thawed, exception_request_pr_branch)
+                                 self.cfg.labels_thawed, branch.name)
                 exception_request_pr.add_to_labels(*self.cfg.labels_thawed)
 
                 # Close the pull request
