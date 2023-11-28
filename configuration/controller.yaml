@@ -22,6 +22,12 @@ status:
   # and only used by the controller.
   context: freeze
 
+  # When set to true, this will automatically mark merge groups
+  # as valid to merge, even if during a freeze window. This is
+  # to allow a faster path to skip the freeze manager (otherwise,
+  # it requires to jump the merge queue).
+  skip_check_merge_groups: false
+
 # Configure the active windows
 windows:
   # Configure the name of the base branch used to keep track of the

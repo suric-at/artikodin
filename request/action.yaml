@@ -34,6 +34,9 @@ inputs:
   target-git-sha:
     description: "The sha of the commit to update the status for"
 
+  target-merge-group-head-ref:
+    description: "The head ref of the merge group"
+
   request-exception:
     description: "Request an exception for merge"
     type: boolean
@@ -48,29 +51,17 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Prepare inputs
-      shell: bash
-      env:
-        ACTION_REPOSITORY: ${{ github.action_repository }}
-      run: |
-        HEAD_REF="${{ inputs.target-from-head-ref }}"
-        if [[ "$HEAD_REF" =~ ([^/]*)/([^/]*)/([0-9]*)$ ]]; then
-          TARGET_REPOSITORY_OWNER=${BASH_REMATCH[1]}
-          TARGET_REPOSITORY_NAME=${BASH_REMATCH[2]}
-          TARGET_REPOSITORY="${TARGET_REPOSITORY_OWNER}/${TARGET_REPOSITORY_NAME}"
-          TARGET_PULL_REQUEST=${BASH_REMATCH[3]}
-        else
-          TARGET_REPOSITORY="${{ inputs.target-repository || github.repository }}"
-          TARGET_PULL_REQUEST="${{ inputs.target-pull-request }}"
-        fi
-        echo "TARGET_REPOSITORY=$TARGET_REPOSITORY" | tee -a "$GITHUB_ENV"
-        echo "TARGET_PULL_REQUEST=$TARGET_PULL_REQUEST" | tee -a "$GITHUB_ENV"
-
-        ACTION_REPOSITORY_OWNER=${ACTION_REPOSITORY%/*}
-        ACTION_REPOSITORY_NAME=${ACTION_REPOSITORY##*/}
-        echo "ACTION_REPOSITORY=$ACTION_REPOSITORY" | tee -a "$GITHUB_ENV"
-        echo "ACTION_REPOSITORY_OWNER=$ACTION_REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
-        echo "ACTION_REPOSITORY_NAME=$ACTION_REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
+    # To access private repositories, use the following three steps
+    # - name: Prepare inputs
+      # shell: bash
+      # env:
+        # ACTION_REPOSITORY: ${{ github.action_repository }}
+      # run: |
+        # ACTION_REPOSITORY_OWNER=${ACTION_REPOSITORY%/*}
+        # ACTION_REPOSITORY_NAME=${ACTION_REPOSITORY##*/}
+        # echo "ACTION_REPOSITORY=$ACTION_REPOSITORY" | tee -a "$GITHUB_ENV"
+        # echo "ACTION_REPOSITORY_OWNER=$ACTION_REPOSITORY_OWNER" | tee -a "$GITHUB_ENV"
+        # echo "ACTION_REPOSITORY_NAME=$ACTION_REPOSITORY_NAME" | tee -a "$GITHUB_ENV"
 
     # - name: Create GitHub app token to checkout the controller repository
       # uses: actions/create-github-app-token@v1
@@ -81,14 +72,15 @@ runs:
         # owner: ${{ env.ACTION_REPOSITORY_OWNER }}
         # repositories: ${{ env.ACTION_REPOSITORY_NAME }}
 
-    - name: Checkout controller repository
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ env.ACTION_REPOSITORY }}
-        ref: main
+    # - name: Checkout controller repository
+      # uses: actions/checkout@v4
+      # with:
+        # repository: ${{ env.ACTION_REPOSITORY }}
+        # ref: main
         # token: ${{ steps.contents-app-token.outputs.token }}
         # persist-credentials: false
 
+    # To accesss public repositories, use the following step
     - name: Checkout controller repository
       uses: actions/checkout@v4
       env:
@@ -111,18 +103,25 @@ runs:
     - name: Run update script
       shell: bash
       env:
-        ARTIKODIN_CONTROLLER_APP_ID: ${{ inputs.controller-app-id }}
-        ARTIKODIN_CONTROLLER_PRIVATE_KEY: ${{ inputs.controller-private-key }}
         ARTIKODIN_CONTENTS_APP_ID: ${{ inputs.contents-app-id }}
         ARTIKODIN_CONTENTS_PRIVATE_KEY: ${{ inputs.contents-private-key }}
-        TARGET_GIT_SHA: ${{ inputs.target-git-sha }}
-        EXCEPTION_PULL_REQUEST: ${{ inputs.exception-pull-request }}
-        VERB: ${{ inputs.request-exception == 'true' && 'request' || 'update' }}
+        ARTIKODIN_CONTROLLER_APP_ID: ${{ inputs.controller-app-id }}
+        ARTIKODIN_CONTROLLER_PRIVATE_KEY: ${{ inputs.controller-private-key }}
         BEST_EFFORT: ${{ inputs.request-exception == 'false' && inputs.closing-pr == 'true' && '--best-effort' || '' }}
+        EXCEPTION_HEAD_REF: ${{ inputs.target-from-head-ref }}
+        EXCEPTION_PULL_REQUEST: ${{ inputs.exception-pull-request }}
+        TARGET_GIT_SHA: ${{ inputs.target-git-sha }}
+        TARGET_MERGE_GROUP_HEAD_REF: ${{ inputs.target-merge-group-head-ref }}
+        VERB: ${{ inputs.request-exception == 'true' && 'request' || 'update' }}
       run: |
         ARGS=()
         if [[ -n "$EXCEPTION_PULL_REQUEST" ]]; then
           ARGS+=("--exception-pull-request" "$EXCEPTION_PULL_REQUEST")
+        elif [[ -n "$EXCEPTION_HEAD_REF" ]]; then
+          ARGS+=("--exception-head-ref" "$EXCEPTION_HEAD_REF")
+        elif [[ -n "$TARGET_MERGE_GROUP_HEAD_REF" ]]; then
+          ARGS+=("--merge-group-head-ref" "$TARGET_MERGE_GROUP_HEAD_REF")
+          [[ -n "$TARGET_GIT_SHA" ]] && ARGS+=("--commit" "$TARGET_GIT_SHA")
         else
           ARGS+=("--repository" "${{ env.TARGET_REPOSITORY }}")
           ARGS+=("--pull-request" "$TARGET_PULL_REQUEST")

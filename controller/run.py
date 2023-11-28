@@ -10,6 +10,7 @@ import argparse
 import datetime
 import github
 import logging
+import re
 import time
 
 from ghapp import github_apps
@@ -862,6 +863,17 @@ class Run(object):
         return new_frozen_repositories, new_thawed_repositories
 
     def update(self, move_to_requested=False, best_effort=False):
+        # Check if this is for a merge group, and if we should
+        # ignore it according to the configuration
+        if getattr(self.args, 'merge_group_head_ref', None) and \
+                self.cfg.skip_check_merge_groups:
+            self.logger.info('Ignoring merge group %s (%s #%s)',
+                             self.args.merge_group_head_ref,
+                             self.args.repository,
+                             self.args.pull_request)
+            self._push_status(True)
+            return
+
         # Set the status to pending
         self._push_status(None)
 
@@ -1095,8 +1107,12 @@ def main():
             help='The pull request number in the exceptions repository.',
         )
         parser.add_argument(
-            '--head-ref',
+            '--exception-head-ref',
             help='The head ref of the exception request pull request.',
+        )
+        parser.add_argument(
+            '--merge-group-head-ref',
+            help='The head ref of the merge group in the target repository.',
         )
         parser.add_argument(
             '--repository',
@@ -1110,6 +1126,12 @@ def main():
         parser.add_argument(
             '--base-branch',
             help='The base branch of the target pull request.',
+        )
+        parser.add_argument(
+            '--base-ref',
+            help='The base ref of the target pull request, will resolve '
+                 'to a branch if starting by refs/heads/, or raise an '
+                 'exception otherwise.',
         )
         parser.add_argument(
             '--commit',
@@ -1181,41 +1203,87 @@ def main():
         # We need to check that any of those combinations is provided, that no
         # more than one of those combinations is provided, and that
         # the provided values are valid.
+        def check_is_set(param):
+            if isinstance(param, tuple):
+                return any(getattr(args, p) for p in param)
+            else:
+                return getattr(args, param) is not None
 
+        def format_name(param):
+            if isinstance(param, tuple):
+                return 'any of --{}'.format(', --'.join(
+                    cc.replace('_', '-') for cc in param))
+            else:
+                return '--{}'.format(param.replace('_', '-'))
+
+        # Check that those arguments are not set together
         invalid_combinations = (
-            ('exception_pull_request', 'head_ref'),
-            ('exception_pull_request', 'repository'),
-            ('exception_pull_request', 'pull_request'),
-            ('exception_pull_request', 'commit'),
-            ('exception_pull_request', 'base_branch'),
-            ('head_ref', 'repository'),
-            ('head_ref', 'pull_request'),
-            ('head_ref', 'commit'),
-            ('head_ref', 'base_branch'),
+            ('base_branch', 'base_ref'),
+            ('exception_pull_request', (
+                'base_branch',
+                'base_ref',
+                'commit',
+                'exception_head_ref',
+                'pull_request',
+                'repository',
+            )),
+            ('exception_head_ref', (
+                'base_branch',
+                'base_ref',
+                'commit',
+                'merge_group_head_ref',
+                'pull_request',
+                'repository',
+            )),
+            ('merge_group_head_ref', (
+                'base_branch',
+                'base_ref',
+                'pull_request',
+            )),
         )
         for c in invalid_combinations:
-            if getattr(args, c[0]) and getattr(args, c[1]):
+            if check_is_set(c[0]) and check_is_set(c[1]):
                 raise argparse.ArgumentError(None, "Cannot specify both --{} and --{}".format(
-                    *[cc.replace('_', '-') for cc in c]))
+                    format_name(c[0]), format_name(c[1])))
 
+        # Check that when arguments need to be specified together, they are
         required_combinations = (
-            ('repository', 'pull_request'),
+            ('repository', ('pull_request', 'merge_group_head_ref')),
         )
         for c in required_combinations:
-            if (getattr(args, c[0]) is None) != (getattr(args, c[1]) is None):
-                raise argparse.ArgumentError(None, "Both --{} and --{} are required if one is specified".format(
-                    *[cc.replace('_', '-') for cc in c]))
+            if check_is_set(c[0]) != check_is_set(c[1]):
+                raise argparse.ArgumentError(None, "Both {} and {} are required if one is specified".format(
+                    format_name(c[0]), format_name(c[1])))
+
+        # Convert the base ref to a base branch if needed
+        if getattr(args, 'base_ref', None):
+            if args.base_ref.startswith('refs/heads/'):
+                args.base_branch = args.base_ref[len('refs/heads/'):]
+            else:
+                raise argparse.ArgumentError(None, "Invalid base ref '{}', must be of the form 'refs/heads/<branch>'".format(
+                    args.base_ref))
 
         if args.exception_pull_request:
-            # Handle later
+            # Handle later, since we need to query the github api
             pass
-        elif args.head_ref:
-            m = cfg.exceptions_branch_regex.match(args.head_ref)
+        elif args.exception_head_ref:
+            m = cfg.exceptions_branch_regex.match(args.exception_head_ref)
             if not m:
                 raise argparse.ArgumentError(None, "Invalid head ref '{}', must be of the form '{}'".format(
-                    args.head_ref, cfg.exceptions_branch_format))
+                    args.exception_head_ref, cfg.exceptions_branch_format))
 
             args.repository = m.group('repository')
+            args.pull_request = int(m.group('pr_num'))
+        elif args.merge_group_head_ref:
+            gh_merge_group_regex = re.compile(
+                r'refs/heads/gh-readonly-queue/(?P<base_branch>[^/]+)/'
+                r'pr-(?P<pr_num>[0-9]+)-(?P<base_sha>[0-9a-f]+)')
+            m = gh_merge_group_regex.match(args.merge_group_head_ref)
+            if not m:
+                raise argparse.ArgumentError(None, "Invalid merge group head ref '{}'".format(
+                    args.merge_group_head_ref))
+
+            args.base_branch = m.group('base_branch')
             args.pull_request = int(m.group('pr_num'))
         elif not args.repository or not args.pull_request:
             raise argparse.ArgumentError(None, "Either --head-ref, --exception-pull-request or both --repository and --pull-request are required")

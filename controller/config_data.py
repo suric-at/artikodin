@@ -84,6 +84,10 @@ class ConfigData(object):
         return self._exceptions_branch_prefix
 
     @property
+    def skip_check_merge_groups(self):
+        return self.controller['status']['skip_check_merge_groups']
+
+    @property
     def commit_status_context(self):
         return self.controller['status']['context']
 
@@ -187,6 +191,7 @@ class ConfigData(object):
     def __check_controller_config(self, config):
         validate_dict = lambda v: isinstance(v, dict)
         validate_str = lambda v: isinstance(v, str)
+        validate_bool = lambda v: isinstance(v, bool)
         validate_nonempty_list = lambda v: isinstance(v, list) and len(v) > 0
 
         def validate_repository_full_name(value):
@@ -236,6 +241,9 @@ class ConfigData(object):
                 '_validate': validate_dict,
                 'context': {
                     '_validate': validate_str,
+                },
+                'skip_check_merge_groups': {
+                    '_validate': validate_bool,
                 },
             },
             'windows': {
