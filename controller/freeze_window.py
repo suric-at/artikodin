@@ -25,6 +25,8 @@ class FreezeWindow(object):
             raise RuntimeError("window definition parameter 'from' does not have timezone information")
         if not yaml_data['to'].tzinfo:
             raise RuntimeError("window definition parameter 'to' does not have timezone information")
+        if yaml_data['from'] >= yaml_data['to']:
+            raise RuntimeError("window definition parameter 'from' is not before 'to'")
 
         self.logger = logging.getLogger('freeze-window')
 

@@ -874,8 +874,10 @@ class Run(object):
             self._push_status(True)
             return
 
-        # Set the status to pending
-        self._push_status(None)
+        # Set the status to pending, but only if we're not in best-effort
+        # mode, in which case we only set the final status
+        if not best_effort:
+            self._push_status(None)
 
         # Prepare variables we need
         allow = True

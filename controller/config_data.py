@@ -152,10 +152,6 @@ class ConfigData(object):
         return set(self.controller['labels']['target_merged'])
 
     @property
-    def labels_target_merged_without_approval(self):
-        return set(self.controller['labels']['target_merged_without_approval'])
-
-    @property
     def labels_target_closed(self):
         return set(self.controller['labels']['target_closed'])
 
