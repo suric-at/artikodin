@@ -24,7 +24,7 @@ description_template: |
   {%     elif reviewer.to_date -%}
   {%       set window = " <small>(until " + reviewer.to_date.isoformat() + ")</small>" -%}
   {%     endif -%}
-    <li>{{ reviewer.handle }}{{ window }}</li>
+    <li><a href="https://github.com/{{ reviewer.handle }}">{{ reviewer.handle }}</a>{{ window }}</li>
   {%-   endfor -%}
   </ul>
   {% endif -%}
