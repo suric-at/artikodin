@@ -5,6 +5,10 @@ from datetime import datetime
 def clean_approvers(approvers):
     valid_approvers = []
     for approver in approvers:
+        if isinstance(approver, Approver):
+            valid_approvers.append(approver)
+            continue
+
         try:
             valid_approvers.append(Approver(approver))
         except RuntimeError as e:
