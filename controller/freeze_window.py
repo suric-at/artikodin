@@ -126,6 +126,9 @@ class FreezeWindow(object):
     def applies_to(self, date):
         return self._from <= date and self._to > date
 
+    def current_or_future(self, date):
+        return self._to > date
+
     def with_extra_approvers(self, extra_approvers):
         return FreezeWindow({
             'id': self._id,

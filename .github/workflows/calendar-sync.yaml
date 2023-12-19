@@ -1,0 +1,61 @@
+name: Calendar synchronization
+
+
+on:
+  # Run on a schedule, here every day at 4:13am
+  schedule:
+    - cron: "13 4 * * *"
+
+  # Run if there are configuration changes
+  push:
+    branches:
+      - main
+    paths:
+      - 'configuration/schedules/**'
+      - 'configuration/calendar.yaml'
+      - '.github/workflows/calendar-sync.yaml'
+
+  # Allow to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+
+concurrency:
+  group: ${{ github.workflow }}-calendar-resync
+  cancel-in-progress: false
+
+
+jobs:
+  run_cron:
+    name: Run calendar sync
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout commit
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r controller/requirements_calendar.txt
+
+      - name: Put credentials in a file to load them
+        env:
+          CALENDAR_CREDENTIALS_JSON: ${{ secrets.CALENDAR_CREDENTIALS_JSON }}
+        run: |
+          credentials_path="$(mktemp "google-service-account-creds.json.XXXXXX")"
+          echo "$CALENDAR_CREDENTIALS_JSON" >"$credentials_path"
+          echo "CREDENTIALS_PATH=${credentials_path}" | tee -a "$GITHUB_ENV"
+
+      - name: Run calendar sync script
+        run: |
+          ./controller/calendar-sync.py \
+            --credentials-path "${CREDENTIALS_PATH}"
+

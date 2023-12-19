@@ -1,0 +1,20 @@
+# The calendar id to use to add the events to
+calendar_id: some-calendar
+
+# The description template used for the freeze window
+# events in the calendar. This can use `{freeze_details}`
+# to include a mention of the reason of the freeze (this
+# will be prefixed by ` for` is present, or empty if absent)
+description_template: |
+  This is a company freeze event{freeze_details}.
+
+  During this time, no changes should be made to the production environment.
+
+  Please reach out in <a href="some-slack-channel">#freeze-exceptions</a> if you have any question.
+
+  <small><em>This event is generated from schedules defined in the <a href="https://github.com/suric-at/artikodin">Artikodin</a> repository.</em></small>
+
+# The attendees that will be added to the calendar events
+# for the freeze windows
+attendees:
+- attendee@suric-at
