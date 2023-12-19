@@ -56,9 +56,9 @@ class Approver(object):
     def reviewer(self):
         return self._reviewer
 
-    @property
     def applies_to(self, date):
-        return (self._from is None or self._from <= date) and (self._to is None or self._to > date)
+        return ((self._from is None or self._from <= date) and
+                (self._to is None or self._to > date))
 
     def __repr__(self):
         return "<Approver handle={} reviewer={} from={} to={}>".format(
