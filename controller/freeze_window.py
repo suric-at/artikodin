@@ -4,7 +4,8 @@ import logging
 import re
 from datetime import datetime
 
-from utils import force_list, clean_approvers
+from approvers import clean_approvers
+from utils import force_list
 from repository_list import RepositoryList
 
 
@@ -93,21 +94,13 @@ class FreezeWindow(object):
     def to_date(self):
         return self._to
 
-    @property
-    def approvers(self):
-        return list(set(a['handle'] for a in self._approvers))
-
-    @property
-    def reviewers(self):
-        return list(set(a['handle'] for a in self._approvers if a.get('reviewer')))
-
-    def get_approvers(self, extra_approvers=None):
+    def get_approvers(self, extra_approvers=None, at=None):
         approvers = self._approvers + clean_approvers(force_list(extra_approvers))
-        return list(set(a['handle'] for a in approvers))
+        return list(set(a.handle for a in approvers if at is None or a.applies_to(at)))
 
-    def get_reviewers(self, extra_approvers=None):
+    def get_reviewers(self, extra_approvers=None, at=None):
         approvers = self._approvers + clean_approvers(force_list(extra_approvers))
-        return list(set(a['handle'] for a in approvers if a.get('reviewer')))
+        return list(set(a.handle for a in approvers if a.reviewer and (at is None or a.applies_to(at))))
 
     def matches(self, repository, is_global_repository=False):
         repo_matches = self._repo_only.matches(repository) or \
@@ -141,8 +134,8 @@ class FreezeWindow(object):
             'exclude': self._repo_exclude,
         })
 
-    def valid_approver(self, approver):
-        return any(a.lower() == approver.lower() for a in self.approvers)
+    def valid_approver(self, approver, at=None):
+        return any(a.lower() == approver.lower() for a in self.get_approvers(at=at))
 
     def __repr__(self):
         return "FreezeWindow(id={}, from={}, to={}, reason={})".format(
@@ -150,9 +143,5 @@ class FreezeWindow(object):
             self._from,
             self._to,
             self._reason,
-            self._approvers,
-            self._repo_only,
-            self._repo_include,
-            self._repo_exclude,
         )
 

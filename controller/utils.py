@@ -17,22 +17,6 @@ def force_list(value):
         return []
 
 
-def clean_approvers(approvers):
-    valid_approvers = []
-
-    for approver in approvers:
-        if isinstance(approver, str):
-            approver = {'handle': approver}
-        elif not isinstance(approver, dict):
-            continue
-        elif 'handle' not in approver:
-            continue
-
-        valid_approvers.append(approver)
-
-    return valid_approvers
-
-
 def split_pattern_matching(list_values):
     with_pattern_matching = []
     without_pattern_matching = []

@@ -189,6 +189,8 @@ class Run(object):
         }
 
     def _check_exception_request_pr(self, freeze_window, create_if_missing=True, move_to_requested=False, best_effort=False):
+        now = datetime.datetime.now(datetime.timezone.utc)
+
         exception_request_pr_branch = self.cfg.exceptions_branch_format.format(
             repository=self.args.repository,
             pr_num=self.args.pull_request,
@@ -317,7 +319,7 @@ class Run(object):
             review_state = review.state
 
             # Check if reviewer is an approver for the freeze window
-            if not freeze_window.valid_approver(reviewer_login):
+            if not freeze_window.valid_approver(reviewer_login, at=now):
                 self.logger.info('Reviewer %s is not an approver for freeze window; ignoring review', reviewer_login)
                 continue
 
@@ -350,7 +352,7 @@ class Run(object):
         if moved_to_requested:
             # Add the reviewers
             self.logger.info('Adding reviewers')
-            exception_request_pr.create_review_request(reviewers=freeze_window.get_reviewers())
+            exception_request_pr.create_review_request(reviewers=freeze_window.get_reviewers(at=now))
 
         # Compute the expected labels
         expected_labels = set(non_controller_labels)
