@@ -53,6 +53,14 @@ class Approver(object):
         return self._handle
 
     @property
+    def from_date(self):
+        return self._from
+
+    @property
+    def to_date(self):
+        return self._to
+
+    @property
     def reviewer(self):
         return self._reviewer
 

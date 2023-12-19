@@ -5,6 +5,7 @@
 
 import argparse
 import datetime
+import jinja2
 import logging
 import os
 import re
@@ -14,6 +15,7 @@ from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
+from approvers import Approver
 from config_data import ConfigData
 from const import CONFIG_DIR
 
@@ -72,12 +74,22 @@ class GoogleCalendarFreezeWindowEvents(object):
                 description_template = config.get('description_template')
                 if not description_template:
                     raise RuntimeError("Calendar configuration file does not have a description template")
-
                 if not isinstance(description_template, str):
                     raise RuntimeError("Calendar configuration description template is not a string")
 
                 try:
-                    description_template.format(freeze_details='something')
+                    self._desc_template = jinja2.Environment().from_string(description_template)
+                    self._desc_template.render(
+                        freeze_details='something',
+                        reviewers=[
+                            Approver({
+                                'handle': 'someone',
+                                'reviewer': True,
+                                'from': datetime.datetime.now(datetime.timezone.utc),
+                                'to': datetime.datetime.now(datetime.timezone.utc),
+                            }),
+                        ],
+                    )
                 except KeyError as e:
                     raise RuntimeError("Calendar configuration description template is not valid: {}".format(e))
 
@@ -94,8 +106,11 @@ class GoogleCalendarFreezeWindowEvents(object):
         return self.calendar_config['attendees']
 
     def event_description(self, freeze_window):
-        desc = self.calendar_config['description_template'].format(
-            freeze_details=" for {}".format(freeze_window.reason) if freeze_window.reason else "")
+        desc = self._desc_template.render(
+            freeze_details=" for {}".format(freeze_window.reason)
+                           if freeze_window.reason else "",
+            reviewers=freeze_window.all_reviewers(),
+        )
 
         return "<!-- freeze_window:{} -->{}".format(
             freeze_window.id,

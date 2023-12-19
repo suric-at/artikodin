@@ -6,11 +6,28 @@ calendar_id: some-calendar
 # to include a mention of the reason of the freeze (this
 # will be prefixed by ` for` is present, or empty if absent)
 description_template: |
-  This is a company freeze event{freeze_details}.
+  This is a company freeze event{{ freeze_details }}.
 
   During this time, no changes should be made to the production environment.
 
   Please reach out in <a href="some-slack-channel">#freeze-exceptions</a> if you have any question.
+
+  {% if reviewers|length > 0 -%}
+  The following people are responsible for the review and approval of exceptions during this event:
+  <ul>
+  {%-   for reviewer in reviewers -%}
+  {%     set window = "" -%}
+  {%     if reviewer.from_date and reviewer.to_date -%}
+  {%       set window = " <small>(from " + reviewer.from_date.isoformat() + " to " + reviewer.to_date.isoformat() + ")</small>" -%}
+  {%     elif reviewer.from_date -%}
+  {%       set window = " <small>(from " + reviewer.from_date.isoformat() + ")</small>" -%}
+  {%     elif reviewer.to_date -%}
+  {%       set window = " <small>(until " + reviewer.to_date.isoformat() + ")</small>" -%}
+  {%     endif -%}
+    <li>{{ reviewer.handle }}{{ window }}</li>
+  {%-   endfor -%}
+  </ul>
+  {% endif -%}
 
   <small><em>This event is generated from schedules defined in the <a href="https://github.com/suric-at/artikodin">Artikodin</a> repository.</em></small>
 

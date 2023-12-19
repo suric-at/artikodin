@@ -103,6 +103,11 @@ class FreezeWindow(object):
         return list(set(a.handle for a in approvers
                         if a.reviewer and (at is None or a.applies_to(at))))
 
+    def all_reviewers(self, extra_approvers=None):
+        approvers = self._approvers + clean_approvers(force_list(extra_approvers))
+        return sorted((a for a in approvers if a.reviewer),
+                      key=lambda a: (a.from_date, a.to_date, a.handle.lower()))
+
     def matches(self, repository, is_global_repository=False):
         repo_matches = self._repo_only.matches(repository) or \
             self._repo_include.matches(repository) or \

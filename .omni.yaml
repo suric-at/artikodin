@@ -2,7 +2,7 @@ up:
   - python: auto
   - custom:
       dir: controller
-      meet: pip install -r requirements.txt
+      meet: pip install -r requirements.txt && pip install -r requirements_calendar.txt
 
 commands:
   check-config:
@@ -10,4 +10,4 @@ commands:
     run: |
       cd controller
       eval "$(omni hook env 2>/dev/null)"
-      ./run.py check-config
+      ./run.py check-config && echo "Config ok!"
